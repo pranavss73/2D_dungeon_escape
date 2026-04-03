@@ -1,0 +1,5 @@
+Analyzing assets/enemies/enemy2_run_with_shadow.png
+Row 0: mean_x = 29.8, mean_y = 27.9, pixel_count = 423
+Row 1: mean_x = 33.3, mean_y = 27.9, pixel_count = 419
+Row 2: mean_x = 30.7, mean_y = 27.6, pixel_count = 362
+Row 3: mean_x = 31.8, mean_y = 27.3, pixel_count = 350

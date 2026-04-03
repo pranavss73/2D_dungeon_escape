@@ -1,0 +1,97 @@
+# Map Obstacles Documentation & Beginner Guide
+
+The invisible barriers (hitboxes) mapping the walls of your dungeon are hardcoded in C++ for maximum performance during the QuadTree generation. 
+
+If you ever need to adjust these, remove blocks, or add new invisible walls, you can modify them directly in C++!
+Direct Link: [Map.cpp:21](file:///p:/college/SEM%204/DS%20II/CP/project2/project2/Map.cpp#L21-L70).
+
+---
+
+## ❓ Beginner's Guide to Map Limits
+
+Here are answers to some common questions if you want to customize your map barriers:
+
+### How do Map Coordinates Work?
+The game uses "World Coordinates" which perfectly match your `map.png` pixel dimensions. The top-left corner of the map image is exactly `(0, 0)`. The bottom-right corner is whatever the total width and height of the image is! 
+Even though your window size is smaller (1280x720), the camera *scrolls* around the full world map.
+
+**Format of a barrier:**
+`obstacles.push_back(sf::FloatRect(X, Y, WIDTH, HEIGHT));`
+
+- **`X`**: The starting pixel from the left edge of the map.
+- **`Y`**: The starting pixel from the top edge of the map.
+- **`WIDTH`**: How far the barrier stretches to the right.
+- **`HEIGHT`**: How far the barrier stretches downwards.
+
+### If my map is 2239x1220, can I add an upper limit manually like 2239x214?
+**Yes, absolutely!** 
+If the top part of your map has a thick wall that is 214 pixels tall, you can block the player from walking into it across the entire map by adding exactly this single line of code inside `Map.cpp`:
+```cpp
+obstacles.push_back(sf::FloatRect(0, 0, 2239, 214));
+```
+- `0, 0` means it starts perfectly at the top-left.
+- `2239` means it stretches across the entire width of the map.
+- `214` means it comes downward by 214 pixels.
+
+You can do the same for the **left wall**, **right wall**, and **bottom limit**! Covering long walls with one big rectangle is highly recommended because it's easier to manage and faster for the game to process.
+
+### How do I figure out the coordinates for a barrier?
+1. Open your `map.png` file in MS Paint, Photoshop, or any image viewer that shows cursor coordinates.
+2. Hover your mouse over the top-left corner of the wall you want to block. Look at your cursor's `(X, Y)` values—these are your starting `X` and `Y`.
+3. Then find out the width and height of that wall in pixels and plug them in!
+
+---
+
+## 📝 Current Hardcoded Barriers
+
+Currently, here are the exact coordinates of the invisible hitboxes defined in your C++ code. You can find and tweak these lines directly in `Map.cpp`:
+
+- Component 1 : Rectangle 320x128 at (0, 0)
+- Component 2 : Rectangle 384x64 at (2432, 0)
+- Component 3 : Rectangle 320x128 at (2496, 64)
+- Component 4 : Rectangle 192x64 at (0, 128)
+- Component 5 : Rectangle 128x64 at (0, 192)
+- Component 6 : Rectangle 128x64 at (2688, 192)
+- Component 7 : Rectangle 320x64 at (832, 256)
+- Component 8 : Rectangle 128x64 at (1216, 256)
+- Component 9 : Rectangle 256x64 at (1728, 256)
+- Component 10 : Rectangle 128x64 at (2368, 256)
+- Component 11 : Rectangle 384x512 at (832, 512)
+- Component 12 : Rectangle 256x512 at (1728, 512)
+- Component 13 : Rectangle 512x64 at (1984, 640)
+- Component 14 : Rectangle 256x64 at (192, 704)
+- Component 15 : Rectangle 256x128 at (576, 704)
+- Component 16 : Rectangle 192x128 at (1216, 704)
+- Component 17 : Rectangle 192x192 at (1536, 704)
+- Component 18 : Rectangle 448x192 at (1984, 704)
+- Component 19 : Rectangle 192x64 at (256, 768)
+- Component 20 : Rectangle 128x64 at (320, 832)
+- Component 21 : Rectangle 192x64 at (640, 832)
+- Component 22 : Rectangle 128x64 at (1216, 832)
+- Component 23 : Rectangle 64x128 at (768, 896)
+- Component 24 : Rectangle 64x128 at (1216, 896)
+- Component 25 : Rectangle 128x128 at (1984, 896)
+- Component 26 : Rectangle 64x64 at (2176, 1024)
+- Component 27 : Rectangle 64x64 at (2560, 1024)
+- Component 28 : Rectangle 64x384 at (0, 1152)
+- Component 29 : Rectangle 192x256 at (2624, 1152)
+- Component 30 : Rectangle 64x320 at (64, 1216)
+- Component 31 : Rectangle 448x64 at (768, 1216)
+- Component 32 : Rectangle 384x64 at (1728, 1216)
+- Component 33 : Rectangle 128x256 at (128, 1280)
+- Component 34 : Rectangle 64x192 at (768, 1280)
+- Component 35 : Rectangle 64x192 at (1152, 1280)
+- Component 36 : Rectangle 64x192 at (1728, 1280)
+- Component 37 : Rectangle 128x192 at (2048, 1280)
+- Component 38 : Rectangle 128x256 at (2496, 1280)
+- Component 39 : Rectangle 64x192 at (320, 1344)
+- Component 40 : Rectangle 64x192 at (2432, 1344)
+- Component 41 : Rectangle 64x128 at (256, 1408)
+- Component 42 : Rectangle 384x64 at (384, 1408)
+- Component 43 : Rectangle 512x64 at (1216, 1408)
+- Component 44 : Rectangle 256x128 at (2176, 1408)
+- Component 45 : Rectangle 64x128 at (2624, 1408)
+- Component 46 : Rectangle 64x128 at (2752, 1408)
+- Component 47 : Rectangle 256x64 at (384, 1472)
+- Component 48 : Rectangle 64x64 at (2112, 1472)
+- Component 49 : Rectangle 64x64 at (2688, 1472)

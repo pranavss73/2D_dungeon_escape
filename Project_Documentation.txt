@@ -1,0 +1,94 @@
+SFML RPG Project Documentation
+==============================
+
+This document provides a detailed breakdown of all the C++ source files, headers, and auxiliary scripts used to build and manage this 2D top-down RPG game in SFML.
+
+-------------------------------------------------------------------------------
+1. Core Game Loop & Architecture
+-------------------------------------------------------------------------------
+File: `main.cpp`
+Purpose: The central brain of the game. It initializes the SFML `RenderWindow`, sets up the frame rate, and instantiates all primary game objects: Map, Player, Enemies, and Bullets.
+
+Detailed Logic:
+- Initialization: Loads the map texture, initializes the player with their sprite sheet (6 columns), and uses a custom `spawnEnemy` function to randomly place the initial wave of enemies.
+- Game Loop `while (window.isOpen())`:
+  - Event Polling: Checks for window closure and mouse clicks. Left-clicks calculate the geometric angle from the Player to the crosshair to instantiate and fire a `Bullet` object.
+  - Endless Spawner: A timer tracks `deltaTime`. Every 3 seconds, if the active enemy count is under 20, it triggers `spawnEnemy` again to inject fresh enemies into the survival map.
+  - Safe Spawning: `spawnEnemy` is a robust function that picks random `(X, Y)` coordinates and tests them against the 49 hardcoded map boundaries in the `Map` object to ensure skeletons never spawn inside walls or too close to the player.
+  - Entities Update: Calls `.update()` on the player, all living enemies, and all active bullets, passing the `deltaTime`, `gameMap`, and `playerPos` variables as needed for tracking and collision.
+  - QuadTree Collision: Inserts all living enemies into a spatial partitioning DSA (`QuadTree`). Bullets then query the QuadTree to retrieve only the enemies in their immediate area, drastically optimizing hit-detection from O(n^2) to O(n log n).
+  - Wall Collision: Bullets are destroyed immediately if their bounding box intersects any of the Map obstacles.
+  - Win Condition: Reaching the hardcoded rectangular trigger bounds of the exit door halts the game loop and prints a "You Escaped!" victory score screen.
+  - Render Phase: Clears the window, draws the Map, Enemies, Player, Bullets, and UI Score Text in sequential Z-index order, then pushes the display.
+
+-------------------------------------------------------------------------------
+2. The Player Character
+-------------------------------------------------------------------------------
+Files: `Player.h`, `Player.cpp`
+Purpose: Manages the player's texture loading, keyboard-driven movement, physics collision against walls, and directional sprite-sheet animations.
+
+Detailed Logic:
+- Initialization `load()`: Loads `soldier.png` and slices it based on a 6-column layout. The scale is set to `0.8f` to fit the hallways perfectly.
+- Movement `update()`: Tracks the W, A, S, D keys to apply directional velocity.
+  - Slide Collision: Movement is applied iteratively on the X-axis first, checked against the `gameMap.getObstacles()` list, and reverted if a wall intersection occurs. Then the Y-axis movement is applied and checked. This independent multi-axis checking allows the player to gracefully "slide" along walls instead of freezing.
+  - Z-Plane Hitbox: `getGlobalBounds()` is customized to only return the bottom 30% of the player sprite (the physical feet). This creates a 2.5D RPG perspective, allowing the top of the player's head and body to visually overlap the base of northern walls.
+- Animation `updateAnimation()`: A timer cycles the `currentFrameX` to animate walking. `currentFrameY` is determined by the velocity direction to face Up, Down, Left, or Right. 
+  - Precision Cropping: Because the sprite sheet rows were slightly uneven, custom absolute Y-offsets (10, 155, 295, 430) were hardcoded to perfectly crop the frames without catching shadows from adjacent sprites.
+
+-------------------------------------------------------------------------------
+3. AI Enemy Logic
+-------------------------------------------------------------------------------
+Files: `Enemy.h`, `Enemy.cpp`
+Purpose: Manages skeleton enemies, their pathfinding towards the player, their physics collisions, and taking damage.
+
+Detailed Logic:
+- Tracking `update()`: Continuously calculates the Euclidean distance and directional vector between itself and the `playerPos` passed in from `main.cpp`.
+  - If the player is between 50 and 800 pixels away, the skeleton begins walking towards them.
+  - Safe Movement: Utilizes the identical separated X/Y slide-collision logic as the player to navigate around pillars and walls without clipping "through" solid rock.
+  - Z-Plane Hitbox: Also overrides `getGlobalBounds()` to only utilize the skeleton's feet, allowing for smooth 2.5D overlapping with the environment.
+- Animation: Scales the enemy texture from the 9-column `enemy.png` sheet up by `1.5f` to make them imposing. Matches directional facing based on the tracking velocity.
+
+-------------------------------------------------------------------------------
+4. Projectiles
+-------------------------------------------------------------------------------
+Files: `Bullet.h`, `Bullet.cpp`
+Purpose: Handles the visual representation and physics calculation of the gun tracers fired by the player.
+
+Detailed Logic:
+- Initialization: Accepts a starting position and a direction vector.
+  - Normalizes the directional coordinates to determine travel velocity.
+  - Uses `std::atan2` to calculate the exact degree angle the bullet is travelling in, then applies `setRotation()` to its geometric shape so the laser perfectly aligns with its trajectory.
+- Rendering: Replaced standard circular dots with `sf::RectangleShape` (15x4 dimensions) configured with a bright yellow core and an orange outline to mimic a glowing tracer round.
+- Lifecycle: Advances its location continuously by `velocity * deltaTime`. If it travels for more than 3.0 seconds, it signals its internal `active` boolean to turn false, prompting deletion by `main.cpp`.
+
+-------------------------------------------------------------------------------
+5. Environment and Collisions
+-------------------------------------------------------------------------------
+Files: `Map.h`, `Map.cpp`
+Purpose: Stores the game world imagery, the victory exit door, and the massive array of invisible wall rectangles.
+
+Detailed Logic:
+- Loading: Loads `map.png` and creates the overarching background sprite. Contains the `getSpawnPoint(400, 300)` for initializing the player safely.
+- Bound Parsing: Houses `std::vector<sf::FloatRect> obstacles`.
+  - Rather than generic blocks, this array was rigorously programmed via an automated python image-analysis script that mathematically scanned `map.png` to perfectly isolate the 49 complex shapes mapping out all solid boundaries, pillars, vertical columns, and horizontal walls down to the exact pixel.
+  - These geometric obstacles are exposed via `getObstacles()` to the Player, Enemy, and Bullet classes for real-time intersection testing.
+
+-------------------------------------------------------------------------------
+6. DSA Spatial Optimization
+-------------------------------------------------------------------------------
+Files: `QuadTree.h`, `QuadTree.cpp`
+Purpose: Implementation of a Data Structures and Algorithms spatial partitioning tree to optimize 2D rendering and collision logic.
+
+Detailed Logic:
+- Structure: A tree where each node represents a 2D bounding box over the map. When a node fills up with more than 4 intersecting objects (enemies), it safely splits into four identical sub-quadrants (NW, NE, SW, SE).
+- Function: As enemies move and bullets fly, they query the tree. Instead of checking a bullet collision against all 50 enemies on the map, it asks the QuadTree to return only the enemies inside the exact sub-quadrant the bullet is currently traversing through, massively improving frame rate.
+
+-------------------------------------------------------------------------------
+7. Auxiliary Tooling Scripts (Python)
+-------------------------------------------------------------------------------
+Purpose: Python utilities created during the development process to debug and program complex C++ configurations based on raw image assets.
+
+Files:
+- `gen_collision.py`: The massive procedural algorithm that scanned the RGB `(8, 7, 15)` void colors of `map.png`, gridded them into 64x64 tiles, joined adjacent dark tiles into comprehensive polygons, and generated the resultant 49 exact `sf::FloatRect` C++ code injections for `Map.cpp`.
+- `map_colors.py` & `analyze_map.py`: Color analysis scripts that probed the image files to figure out the mathematical density and threshold of pixel lightness, deciding what counted as a "wall" vs a "floor".
+- `analyze_sprite.py` & `ascii_sprite.py`: Automated scanning tools that analyzed the `soldier.png` file array to discover it was fundamentally a 6-column sheet instead of a 3-column sheet, preventing overlapping character sprites and bleeding shadows.

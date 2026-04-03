@@ -1,0 +1,5 @@
+Analyzing assets/enemies/enemy2_attack_with_shadow.png
+Row 0: frame 3 mean_x = 44.0
+Row 1: frame 3 mean_x = 24.1
+Row 2: frame 3 mean_x = 16.9
+Row 3: frame 3 mean_x = 46.7
