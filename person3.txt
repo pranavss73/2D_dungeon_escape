@@ -1,0 +1,447 @@
+================================================================================
+        PERSON 3 — QUADTREE DATA STRUCTURE & ALL COLLISION LOGIC
+================================================================================
+
+RESPONSIBLE FILES:
+  • QuadTree.h         (38 lines)   — QuadTree class + QuadTreeData struct
+  • QuadTree.cpp       (113 lines)  — Full QuadTree implementation
+  • main.cpp (partial)              — QuadTree integration: build, query, bullet
+                                      collisions, player-obstacle collisions,
+                                      enemy-obstacle collisions
+
+TOTAL LINES OF CODE OWNED: ~300 lines (QuadTree: 151, main.cpp collision: ~149)
+
+================================================================================
+1. QUADTREE DATA STRUCTURE — QuadTree.h
+================================================================================
+
+1.1  QuadTreeData STRUCT (Lines 11–14)
+──────────────────────────────────────
+  struct QuadTreeData {
+      sf::FloatRect bounds;    // Axis-aligned bounding box of the entity
+      int id;                  // Index into the enemies[] vector
+  };
+
+  Purpose: Wraps each insertable object with its bounding box and a reference
+  ID so the QuadTree can return candidates without storing full objects.
+
+1.2  QuadTree CLASS DECLARATION (Lines 16–35)
+─────────────────────────────────────────────
+  PUBLIC INTERFACE:
+    QuadTree(int level, const sf::FloatRect& bounds)  → Constructor
+    ~QuadTree()                                        → Destructor (calls clear)
+    void clear()                → Recursively frees all child nodes
+    void split()                → Subdivides into 4 quadrants
+    int getIndex(const sf::FloatRect& pRect)  → Determines which quadrant fits
+    void insert(const QuadTreeData& data)     → Inserts entity into tree
+    vector<QuadTreeData> retrieve(vector<QuadTreeData>& returnObjects,
+                                  const sf::FloatRect& pRect) → Query
+
+  PRIVATE MEMBERS:
+    int MAX_OBJECTS = 5    → Split threshold (max objects per node before split)
+    int MAX_LEVELS = 5     → Maximum tree depth (prevents infinite recursion)
+    int level              → Current depth level of this node
+    vector<QuadTreeData> objects  → Entities stored at this node
+    sf::FloatRect bounds   → Spatial region this node covers
+    QuadTree* nodes[4]     → Child quadrant pointers (NE, NW, SW, SE)
+
+================================================================================
+2. QUADTREE IMPLEMENTATION — QuadTree.cpp
+================================================================================
+
+2.1  CONSTRUCTOR (Lines 3–7)
+────────────────────────────
+  QuadTree::QuadTree(int level, const sf::FloatRect& bounds)
+      : level(level), bounds(bounds)
+  {
+      for (int i = 0; i < 4; i++)
+          nodes[i] = nullptr;   // All children null initially
+  }
+
+  Each node starts as a LEAF with no children and no objects.
+
+2.2  DESTRUCTOR (Lines 9–11)
+────────────────────────────
+  ~QuadTree() { clear(); }
+  Ensures full recursive cleanup when the tree goes out of scope.
+
+2.3  clear() — RECURSIVE CLEANUP (Lines 13–22)
+───────────────────────────────────────────────
+  void QuadTree::clear() {
+      objects.clear();                    // Remove all objects at this level
+      for (int i = 0; i < 4; i++) {
+          if (nodes[i] != nullptr) {
+              nodes[i]->clear();          // Recursively clear child
+              delete nodes[i];            // Free child memory
+              nodes[i] = nullptr;         // Null out pointer
+          }
+      }
+  }
+
+  TIME COMPLEXITY: O(n) where n = total nodes in tree
+  Called every frame before rebuilding to prevent stale data.
+
+2.4  split() — QUADRANT SUBDIVISION (Lines 24–34)
+──────────────────────────────────────────────────
+  Divides this node's bounds into 4 equal quadrants:
+
+  ┌───────────────────────┐
+  │           │           │
+  │  nodes[1] │  nodes[0] │   nodes[0] = NE (right-top)
+  │    NW     │    NE     │   nodes[1] = NW (left-top)
+  │           │           │   nodes[2] = SW (left-bottom)
+  ├───────────┼───────────┤   nodes[3] = SE (right-bottom)
+  │           │           │
+  │  nodes[2] │  nodes[3] │
+  │    SW     │    SE     │
+  │           │           │
+  └───────────────────────┘
+
+  Each child node is created at (level + 1) with half the parent's dimensions:
+    subWidth  = bounds.width / 2
+    subHeight = bounds.height / 2
+
+  Code (Lines 25–33):
+    nodes[0] = new QuadTree(level+1, FloatRect(x + subWidth, y, subWidth, subHeight));
+    nodes[1] = new QuadTree(level+1, FloatRect(x, y, subWidth, subHeight));
+    nodes[2] = new QuadTree(level+1, FloatRect(x, y + subHeight, subWidth, subHeight));
+    nodes[3] = new QuadTree(level+1, FloatRect(x + subWidth, y + subHeight, subWidth, subHeight));
+
+2.5  getIndex() — QUADRANT DETERMINATION (Lines 36–64)
+──────────────────────────────────────────────────────
+  Determines which quadrant a given rectangle COMPLETELY fits within.
+  Returns -1 if the rectangle spans multiple quadrants (straddles midpoint).
+
+  ALGORITHM:
+  1. Calculate midpoints:
+       verticalMidpoint   = bounds.left + bounds.width / 2
+       horizontalMidpoint = bounds.top  + bounds.height / 2
+
+  2. Check vertical position:
+       topQuadrant    = pRect fits entirely above horizontalMidpoint
+       bottomQuadrant = pRect fits entirely below horizontalMidpoint
+
+  3. Check horizontal position:
+       leftSide  = pRect fits entirely left of verticalMidpoint
+       rightSide = pRect fits entirely right of verticalMidpoint
+
+  4. Return quadrant index:
+       ┌────────────────────────────────────┐
+       │  Left + Top    → index 1 (NW)     │
+       │  Left + Bottom → index 2 (SW)     │
+       │  Right + Top   → index 0 (NE)     │
+       │  Right + Bottom→ index 3 (SE)     │
+       │  Straddling    → index -1 (stays) │
+       └────────────────────────────────────┘
+
+  TIME COMPLEXITY: O(1) — constant-time computation
+
+2.6  insert() — INSERTION ALGORITHM (Lines 66–93)
+──────────────────────────────────────────────────
+  void QuadTree::insert(const QuadTreeData& data)
+
+  ALGORITHM:
+  1. If children exist (nodes[0] != nullptr):
+       index = getIndex(data.bounds)
+       If index != -1: recursively insert into nodes[index] → return
+       (Object fits cleanly into a child quadrant)
+
+  2. Add data to this node's objects vector (Line 75)
+     (Object straddles quadrants OR node is a leaf)
+
+  3. If objects.size() > MAX_OBJECTS (5) AND level < MAX_LEVELS (5):
+       If no children yet: call split()
+
+       Redistribute existing objects into children where possible:
+       - For each object, compute getIndex()
+       - If index != -1: remove from this node, insert into child
+       - If index == -1: leave in this node (it straddles boundaries)
+
+  INSERTION COMPLEXITY:
+    Best case: O(log₄ n) = O(log n) — object falls cleanly into a quadrant
+    Worst case: O(n) — all objects straddle boundaries at every level
+
+  REDISTRIBUTION (Lines 82–92):
+    Uses index-based iteration with erase to safely redistribute:
+      while (i < objects.size()) {
+          index = getIndex(objects[i].bounds);
+          if (index != -1) {
+              remove from objects, insert into nodes[index];
+          } else {
+              i++;
+          }
+      }
+
+2.7  retrieve() — SPATIAL QUERY (Lines 96–112)
+───────────────────────────────────────────────
+  vector<QuadTreeData> retrieve(vector<QuadTreeData>& returnObjects,
+                                 const sf::FloatRect& pRect)
+
+  ALGORITHM:
+  1. index = getIndex(pRect)
+
+  2. If index != -1 AND children exist:
+       Recurse into nodes[index] only (Lines 98–99)
+       (Query rect fits entirely in one quadrant)
+
+  3. Else if children exist AND index == -1:
+       Query rect spans multiple quadrants →
+       Iterate all 4 children, recurse into those whose bounds INTERSECT pRect
+       (Lines 100–107)
+       This is the KEY optimization over brute-force: only visiting relevant subtrees
+
+  4. Append all objects stored at THIS node to returnObjects (Line 110)
+     (These objects straddled boundaries and couldn't be placed in children)
+
+  5. Return returnObjects
+
+  QUERY COMPLEXITY:
+    Best case: O(log n) — query rect fits in one quadrant path
+    Average case: O(log n + k) — where k = number of returned candidates
+    Worst case: O(n) — all objects straddle, or query covers entire space
+
+  WHY THIS MATTERS:
+    Without QuadTree: Bullet-enemy check = O(bullets × enemies) per frame
+    With QuadTree:    Bullet-enemy check = O(bullets × log(enemies)) per frame
+    For 20 enemies and 5 bullets = 100 checks → ~25 checks (4× improvement)
+    For larger scales the benefit is dramatically greater.
+
+================================================================================
+3. QUADTREE INTEGRATION IN GAME LOOP — main.cpp
+================================================================================
+
+3.1  QUADTREE INITIALIZATION (Lines 379–380)
+────────────────────────────────────────────
+  sf::FloatRect mapBounds(0, 0, 3000, 2000);
+  QuadTree covers a 3000×2000 pixel region encompassing the entire map.
+
+3.2  PER-FRAME REBUILD (Lines 920–934)
+──────────────────────────────────────
+  Every frame during PLAYING state:
+
+  // 1. Create fresh QuadTree (old one destroyed when it goes out of scope)
+  QuadTree quadTree(0, mapBounds);                              // Line 921
+
+  // 2. Update enemies and insert into tree
+  for (int i = 0; i < enemies.size(); ++i) {                   // Line 924
+      if (!enemies[i]->isDead()) {
+          enemies[i]->update(dt, player.getPosition(), gameMap); // Line 926
+
+          // Insert into QuadTree
+          QuadTreeData data;
+          data.bounds = enemies[i]->getGlobalBounds();           // Line 930
+          data.id = i;                                           // Line 931
+          quadTree.insert(data);                                 // Line 932
+      }
+  }
+
+  The QuadTree is fully rebuilt each frame because enemies move constantly.
+  Rebuilding is O(n log n) for n active enemies.
+
+3.3  BULLET-ENEMY COLLISION VIA QUADTREE (Lines 936–977)
+────────────────────────────────────────────────────────
+  For each active bullet:
+    1. Update bullet position (Line 939)
+
+    2. Check bullet-wall collision (Lines 941–948):
+       Iterate all map obstacles, if bullet intersects any → destroy bullet
+
+    3. If bullet still active:
+       // SPATIAL QUERY — the core DSA optimization
+       vector<QuadTreeData> returnObjects;
+       quadTree.retrieve(returnObjects, bullet->getGlobalBounds());  // Line 958
+
+       // Only check enemies returned by QuadTree (nearby candidates)
+       for (const auto& data : returnObjects) {                      // Line 960
+           int enemyIndex = data.id;
+           if (!enemies[enemyIndex]->isDead() &&
+               bullet->getGlobalBounds().intersects(
+                   enemies[enemyIndex]->getGlobalBounds())) {
+               // HIT: apply damage, award score/coins
+               enemies[enemyIndex]->takeDamage(player.getDamage(),
+                                                player.getPosition());
+               bullet->destroy();
+               break;
+           }
+       }
+
+  OPTIMIZATION: Instead of checking bullet against ALL enemies (O(n)),
+  we only check against candidates in the same spatial region (O(log n + k)).
+
+================================================================================
+4. AXIS-SEPARATED COLLISION — PLAYER MOVEMENT
+================================================================================
+
+4.1  PLAYER-OBSTACLE COLLISION — Player.cpp, Lines 123–145
+──────────────────────────────────────────────────────────
+  This is NOT QuadTree-based but is the core collision resolution algorithm.
+
+  PATTERN: Move-Check-Revert (per axis)
+
+  X-AXIS (Lines 123–133):
+    sprite.move(velocity.x * deltaTime, 0);        // Tentative X move
+    boundsAfterX = getGlobalBounds();               // Get new bounds
+    for (each obstacle in gameMap.getObstacles()) { // Check ALL obstacles
+        if (boundsAfterX.intersects(obs)) {
+            sprite.move(-velocity.x * deltaTime, 0); // REVERT X move
+            velocity.x = 0;                          // Stop X animation
+            break;
+        }
+    }
+
+  Y-AXIS (Lines 135–145):
+    Same pattern applied independently to Y axis.
+
+  WHY AXIS-SEPARATED:
+    By checking X and Y independently, the player can SLIDE along walls.
+    If moving diagonally into a horizontal wall, X movement continues while
+    Y movement is reverted. This creates smooth, natural wall-sliding behavior.
+
+4.2  ENEMY-OBSTACLE COLLISION — Enemy.cpp, Lines 226–245
+────────────────────────────────────────────────────────
+  Identical axis-separated pattern for enemy movement:
+    Move X → check obstacles → revert if collision
+    Move Y → check obstacles → revert if collision
+
+  Applied only in ALIVE state during player pursuit.
+
+================================================================================
+5. PLAYER-ENEMY DAMAGE COLLISION — main.cpp, Lines 1005–1012
+================================================================================
+
+  Direct AABB intersection test (no QuadTree — enemy count is small):
+
+  for (auto& enemy : enemies) {
+      if ((enemy->getState() == ALIVE || enemy->getState() == ATTACKING) &&
+          enemy->getDamageBounds().intersects(player.getGlobalBounds())) {
+          float dmg = (enemy->getType() >= 1) ? 20.0f : 10.0f;
+          player.takeDamage(dmg);
+      }
+  }
+
+  Note: getDamageBounds() returns FULL sprite bounds when ATTACKING (larger hitbox)
+  but reduced foot-area bounds otherwise.
+
+================================================================================
+6. MELEE ATTACK COLLISION — main.cpp, Lines 488–508
+================================================================================
+
+  On SPACEBAR press during PLAYING:
+    sf::FloatRect attackArea = player.getAttackBounds();  // Directional box
+    for (Enemy* e : enemies) {
+        if (!e->isDead() && attackArea.intersects(e->getGlobalBounds())) {
+            e->takeDamage(player.getDamage(), player.getPosition());
+            // ... score/coin awards
+        }
+    }
+
+  The attack bounds extend 80px in the player's facing direction.
+
+================================================================================
+7. ENVIRONMENTAL COLLISION — main.cpp, Lines 979–1019
+================================================================================
+
+7.1  KEY PICKUP (Lines 979–983):
+  if player bounds intersect key bounds → collectKey()
+
+7.2  CHEST PICKUP (Lines 985–989):
+  if player bounds intersect chest bounds → openChest(), coins += 300
+
+7.3  WIN ZONE (Lines 991–1003):
+  if door is open AND player bounds intersect doorAreaBounds → ESCAPED_STATE
+
+7.4  SPIKE DAMAGE (Lines 1014–1019):
+  if player bounds intersect props[0] or props[1] → takeDamage(10)
+
+================================================================================
+8. LEVER PROXIMITY INTERACTION — main.cpp, Lines 1058–1111
+================================================================================
+
+  Uses EUCLIDEAN DISTANCE (not AABB) for interaction range:
+
+  LEVER 1 (Lines 1058–1085):
+    distToLever = sqrt((playerX - leverCenterX)² + (playerY - leverCenterY)²)
+    if distToLever < 40.0f AND !leverPulled → show "Press E" prompt
+    if E pressed → gameMap.triggerLever()
+
+  LEVER 2 (Lines 1087–1111):
+    Same pattern with lever2 coordinates.
+
+  DOOR INTERACTION (Lines 1113–1147):
+    distToDoor = sqrt((playerX - 1931)² + (playerY - 749)²)
+    if distToDoor < 150.0f AND !doorOpen → show prompt
+    Prompt changes: "Find Key to Open" (amber) vs "Press E to Escape" (green)
+    if key collected AND E pressed → gameMap.openDoor()
+
+================================================================================
+9. BULLET-WALL COLLISION — main.cpp, Lines 941–954
+================================================================================
+
+  for (const auto& obs : gameMap.getObstacles()) {
+      if (bullet->getGlobalBounds().intersects(obs)) {
+          hitWall = true;
+          break;
+      }
+  }
+  if (!bullet->isActive() || hitWall) {
+      delete bullet;
+      bullets.erase(it);
+  }
+
+  Bullets are destroyed on contact with any obstacle rectangle.
+
+================================================================================
+10. SUMMARY OF CONTRIBUTIONS
+================================================================================
+
+  ┌─────────────────────────────────────────────────────────────────┐
+  │  COMPONENT                    │ FILE           │ LINES         │
+  ├─────────────────────────────────────────────────────────────────┤
+  │  QuadTreeData struct          │ QuadTree.h     │ 11–14         │
+  │  QuadTree class declaration   │ QuadTree.h     │ 16–37         │
+  │  QuadTree constructor/destr   │ QuadTree.cpp   │ 3–11          │
+  │  clear() recursive cleanup    │ QuadTree.cpp   │ 13–22         │
+  │  split() quadrant subdivision │ QuadTree.cpp   │ 24–34         │
+  │  getIndex() quadrant mapping  │ QuadTree.cpp   │ 36–64         │
+  │  insert() insertion algorithm │ QuadTree.cpp   │ 66–93         │
+  │  retrieve() spatial query     │ QuadTree.cpp   │ 96–112        │
+  │  QuadTree init bounds         │ main.cpp       │ 379–380       │
+  │  Per-frame tree rebuild       │ main.cpp       │ 920–934       │
+  │  Bullet-enemy via QuadTree    │ main.cpp       │ 936–977       │
+  │  Player-obstacle collision    │ Player.cpp     │ 123–145       │
+  │  Enemy-obstacle collision     │ Enemy.cpp      │ 226–245       │
+  │  Player-enemy damage          │ main.cpp       │ 1005–1012     │
+  │  Melee attack collision       │ main.cpp       │ 488–508       │
+  │  Environmental collisions     │ main.cpp       │ 979–1019      │
+  │  Lever proximity detection    │ main.cpp       │ 1058–1147     │
+  │  Bullet-wall collision        │ main.cpp       │ 941–954       │
+  └─────────────────────────────────────────────────────────────────┘
+
+  DATA STRUCTURES USED:
+  • QuadTree — 2D spatial partitioning tree (core DSA component)
+      MAX_OBJECTS = 5, MAX_LEVELS = 5
+      Nodes[4] = NE, NW, SW, SE child pointers
+  • std::vector<QuadTreeData> — dynamic list per node + query results
+  • sf::FloatRect — axis-aligned bounding boxes for all collision checks
+
+  KEY ALGORITHMS:
+  • Quadrant subdivision (split)
+  • Spatial hashing via getIndex (O(1) quadrant determination)
+  • Recursive insertion with overflow redistribution
+  • Multi-quadrant spatial query with intersection pruning
+  • Axis-separated collision resolution (move-check-revert per axis)
+  • Euclidean distance checks for lever/door proximity
+  • AABB intersection for all entity collision
+
+  COMPLEXITY ANALYSIS:
+  ┌──────────────────────────────────────────────────────────────┐
+  │  OPERATION          │ WITHOUT QUADTREE  │ WITH QUADTREE      │
+  ├──────────────────────────────────────────────────────────────┤
+  │  Build tree         │ N/A               │ O(n log n)         │
+  │  Bullet-enemy check │ O(b × n)          │ O(b × (log n + k)) │
+  │  Query candidates   │ O(n)              │ O(log n + k)       │
+  │  Insert enemy       │ N/A               │ O(log n)           │
+  └──────────────────────────────────────────────────────────────┘
+  Where n = enemies, b = bullets, k = candidates in region
+
+================================================================================

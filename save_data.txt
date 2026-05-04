@@ -1,0 +1,3 @@
+Easy,Win,190,19,490
+Easy,Win,180,18,180
+Medium,Lose,150,15,330

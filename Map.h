@@ -41,6 +41,11 @@ public:
     bool isDoorOpen() const;
     sf::FloatRect getDoorAreaBounds() const; // win zone (1871,752,124,96)
 
+    // Chest interaction
+    bool isChestOpened() const;
+    void openChest();
+    sf::FloatRect getChestBounds() const;
+
 private:
     sf::Texture mapTexture;
     sf::Sprite mapSprite;
@@ -82,6 +87,9 @@ private:
     sf::Texture map2Texture;
     sf::FloatRect doorObstacleRect; // the blocked-off exit area
     sf::FloatRect doorAreaBounds;   // the win zone
+
+    // Chest vars
+    bool chestOpened;
 };
 
 #endif // MAP_H

@@ -22,6 +22,12 @@ public:
     void takeDamage(float amount);
     bool drainStamina(float amount);
 
+    void heal(float amount);
+
+    void setSpeedMultiplier(float mult);
+    void setBaseDamage(int damage);
+    int getDamage() const;
+
     void setPosition(float x, float y);
     sf::Vector2f getPosition() const;
     sf::FloatRect getGlobalBounds() const;
@@ -55,6 +61,9 @@ private:
     float stamina;
     
     float damageCooldown;
+    
+    float speedMultiplier;
+    int baseDamage;
 
     void updateAnimation(float deltaTime);
 };

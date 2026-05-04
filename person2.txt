@@ -1,0 +1,366 @@
+================================================================================
+             PERSON 2 — ALL ENEMY LOGIC (AI, COMBAT, ANIMATION)
+================================================================================
+
+RESPONSIBLE FILES:
+  • Enemy.h           (77 lines)    — Enemy class declaration + EnemyState enum
+  • Enemy.cpp         (425 lines)   — Full enemy implementation
+  • main.cpp (partial)              — Enemy spawning logic, contact damage, coin rewards
+
+TOTAL LINES OF CODE OWNED: ~600 lines (Enemy: 502, main.cpp portions: ~98)
+
+================================================================================
+1. ENEMY STATE MACHINE — Enemy.h, Lines 8–15
+================================================================================
+
+  enum EnemyState {
+      SPAWNING,   // Playing spawn-in particle effect, can't move or be hit
+      ALIVE,      // Normal state, chasing player
+      ATTACKING,  // Melee attack animation (types 1-3 only)
+      HURT,       // Taking damage, knockback applied, playing hurt animation
+      DYING,      // Death particle effect playing, body hidden
+      DEAD        // Fully dead, flagged for removal/ignore
+  };
+
+  State Transition Diagram:
+  ┌──────────┐    effect done     ┌──────────┐
+  │ SPAWNING │ ─────────────────→ │  ALIVE   │
+  └──────────┘                    └────┬─────┘
+                                       │
+                          ┌────────────┼────────────┐
+                          │ close range│             │ takeDamage
+                          ▼            │             ▼
+                    ┌───────────┐      │       ┌──────────┐
+                    │ ATTACKING │      │       │   HURT   │
+                    └─────┬─────┘      │       └────┬─────┘
+                          │ anim done  │            │ anim done
+                          └────────────┘            └──→ ALIVE
+                                       │
+                                  hp <= 0│
+                                       ▼
+                                 ┌──────────┐    effect done    ┌──────┐
+                                 │  DYING   │ ─────────────────→│ DEAD │
+                                 └──────────┘                   └──────┘
+
+================================================================================
+2. ENEMY CLASS DATA MEMBERS — Enemy.h, Lines 38–71
+================================================================================
+
+  TEXTURES & SPRITES:
+  • sf::Texture texture        → Base run/idle sprite sheet
+  • sf::Sprite sprite          → Active rendered sprite
+  • sf::Texture effectTexture  → Spawn/death particle effect sheet
+  • sf::Sprite effectSprite    → Rendered particle overlay
+  • sf::Texture attackTexture  → Attack animation sheet (types 1-3)
+  • sf::Texture hurtTexture    → Hurt animation sheet (types 1-3)
+
+  ANIMATION COLUMNS:
+  • int baseColumns            → Frame count for run sheet (type 0: 9, others: 8)
+  • int attackColumns = 8      → Frame count for attack sheet
+  • int hurtColumns = 6        → Frame count for hurt sheet
+  • int columns                → Currently active column count (swapped per state)
+
+  COMBAT:
+  • int type                   → Enemy variant: 0=Skeleton, 1=Enemy2, 2=Enemy3, 3=Enemy4
+  • int hp                     → Hit points: (type + 1) * 10
+                                  Type 0=10 HP, Type 1=20 HP, Type 2=30 HP, Type 3=40 HP
+  • sf::Vector2f knockbackVelocity → Applied during HURT state, decays via friction
+
+  MOVEMENT:
+  • float speed = 100.0f       → Base speed (types 2,3 get 130.0f)
+
+  ANIMATION:
+  • int currentFrameX/Y        → Current sprite sheet position
+  • float animationTime/Speed  → Frame timing (default 0.2f)
+  • sf::Vector2i frameSize     → Computed from texture size ÷ columns/rows
+
+  EFFECT ANIMATION:
+  • int effectColumns = 11     → 11-frame spawn/death particle strip
+  • int currentEffectFrame     → Current effect frame
+  • float effectAnimationTime/Speed = 0.08f → Very fast particle playback
+
+================================================================================
+3. ENEMY TYPES AND LOADING
+================================================================================
+
+3.1  TYPE 0 — SKELETON (Basic Enemy) — Enemy.cpp, Lines 30–59 (load)
+────────────────────────────────────────────────────────────────────
+  Called with: enemy->load("assets/enemy.png", 9, 4)
+
+  • columns = 9 (run frames), rows = 4 (directions)
+  • HP = 10 (default), speed = 100.0f (default)
+  • frameSize = texture.getSize() / (9, 4)
+  • sprite scale = 0.8×
+  • Loads "assets/effect/enemy_die_spawn.png" for spawn/death effects
+  • Effect sheet: 11 columns, row 0 → death frames, row 1 → spawn frames
+    (effectFrameSize.y = 65, spawn row starts at y=65)
+  • NO separate attack or hurt textures (type 0 doesn't enter ATTACKING/HURT)
+
+3.2  TYPES 1-3 — ADVANCED ENEMIES — Enemy.cpp, Lines 61–100 (loadAdvancedEnemy)
+────────────────────────────────────────────────────────────────────────────────
+  Called with: enemy->loadAdvancedEnemy(t)  where t ∈ {1, 2, 3}
+
+  HP SCALING: hp = (type + 1) * 10
+    Type 1 → 20 HP    Type 2 → 30 HP    Type 3 → 40 HP
+
+  SPEED SCALING (Line 64):
+    Types 2, 3 → speed = 130.0f  (30% faster than skeleton)
+
+  TEXTURE PREFIX MAP:
+    Type 1 → "enemy2"    Type 2 → "enemy3"    Type 3 → "enemy4"
+
+  LOADED TEXTURES (Lines 70–79):
+    assets/enemies/{prefix}_run_with_shadow.png      → 8 columns, 4 rows
+    assets/enemies/{prefix}_attack_with_shadow.png   → 8 columns
+    assets/enemies/{prefix}_hurt_with_shadow.png     → 6 columns
+
+  • baseColumns = 8, attackColumns = 8, hurtColumns = 6
+  • sprite scale = 1.5× (larger than skeleton's 0.8×)
+  • Also loads spawn/death effect texture
+
+================================================================================
+4. AI & MOVEMENT — Enemy.cpp, Lines 131–271 (update)
+================================================================================
+
+4.1  STATE GUARDS (Lines 132–191)
+─────────────────────────────────
+  DEAD (Line 132): Return immediately, do nothing.
+
+  SPAWNING (Lines 134–149):
+    - Advances effect animation frame-by-frame
+    - Uses spawn row of effect sheet (y = 65)
+    - When currentEffectFrame >= 11: transition to ALIVE
+    - Returns early — no movement or AI during spawn
+
+  DYING (Lines 151–165):
+    - Advances effect animation using death row (y = 0)
+    - When currentEffectFrame >= 11: transition to DEAD
+    - Returns early — no movement or AI during death
+
+  HURT (Lines 167–191):
+    - Applies knockbackVelocity to sprite position
+    - Friction decay: knockback *= pow(0.01, deltaTime) each frame
+    - Advances hurt animation frames
+    - When hurt frames exhausted: transition to ALIVE,
+      restore base texture and baseColumns
+
+4.2  ATTACK TRIGGER (Lines 201–217) — Types 1+ Only
+────────────────────────────────────────────────────
+  If distance to player <= 60.0f AND state == ALIVE:
+    - Transition to ATTACKING state
+    - Swap texture to attackTexture, columns to attackColumns
+    - Reset animation to frame 0
+    - Set direction facing player (based on dx/dy comparison)
+
+4.3  CHASE AI — FOLLOW PLAYER (Lines 219–248)
+──────────────────────────────────────────────
+  Activation: distance > 0.5f AND distance < 800.0f AND state == ALIVE
+  Algorithm: DIRECT LINE-OF-SIGHT PURSUIT
+    direction = normalized(playerPos - enemyPos)
+    velocity = direction × speed
+
+  COLLISION WITH MAP (Lines 226–245):
+    Same axis-separated approach as Player:
+    - Move X → check obstacles → revert if collision
+    - Move Y → check obstacles → revert if collision
+    Enemies slide along walls instead of getting stuck.
+
+4.4  DIRECTION MAPPING (Lines 251–268)
+──────────────────────────────────────
+  Two separate direction schemes:
+
+  TYPE >= 1 (Advanced enemies):
+    Row mapping: 0=Down, 1=Up, 2=Left, 3=Right
+    (Standard 4-direction sheet layout)
+
+  TYPE 0 (Skeleton):
+    Row mapping: 0=Up, 1=Left, 2=Down, 3=Right
+    (Legacy sheet layout from skeleton sprite)
+
+  Direction chosen by comparing |dx| vs |dy| for axis dominance.
+
+================================================================================
+5. ANIMATION ENGINE — Enemy.cpp, Lines 102–129 (updateAnimation)
+================================================================================
+
+  MOVING OR ATTACKING (Lines 103–128):
+    - Attack animations play at 0.5× speed (twice as fast)
+    - When ATTACKING and currentFrameX >= columns:
+      → Return to ALIVE state, restore base texture
+    - Otherwise: frame wraps modulo columns
+    - Sets sprite TextureRect based on (frameX × frameSize.x, frameY × frameSize.y)
+
+  STATIONARY (Lines 125–128):
+    - Locks to frame 0, keeps current direction row
+
+================================================================================
+6. RENDERING — Enemy.cpp, Lines 273–321 (draw)
+================================================================================
+
+  ALIVE / ATTACKING / HURT (Lines 274–296):
+    For Type 0 (skeleton) only:
+      - Draws shadow ellipse: CircleShape radius=15% of width, squash (1.5, 0.8)
+        positioned at feet (y + 48% of height)
+    For Types 1-3:
+      - No manual shadow (baked into sprite sheet PNG)
+    Then:
+      - window.draw(sprite)
+      - DEBUG bounding box: translucent blue rectangle (alpha=50) with solid blue edge
+
+  SPAWNING (Lines 297–314):
+    DRAW ORDER:
+    1. Shadow ellipse
+    2. Skeleton body (stationary, rooted)
+    3. Spawn effect sprite overlaid on top (with y-offset -25px)
+
+  DYING (Lines 315–321):
+    - ONLY draws the death effect sprite, body is hidden
+
+================================================================================
+7. HITBOX SYSTEM — Enemy.cpp, Lines 332–361
+================================================================================
+
+7.1  getGlobalBounds() (Lines 332–353) — MOVEMENT/COLLISION HITBOX
+──────────────────────────────────────────────────────────────────
+  TYPE >= 1 (Advanced):
+    Extremely small footprint for corridor navigation:
+      left + 42% width, top + 50% height, 16% width, 12% height
+    = tiny pinpoint at center-feet
+
+  TYPE 0 (Skeleton):
+    Moderate reduction to bottom 30%:
+      left + 20% width, top + 70% height, 60% width, 30% height
+    = realistic feet-area collision
+
+7.2  getDamageBounds() (Lines 355–361) — DAMAGE DEALING HITBOX
+──────────────────────────────────────────────────────────────
+  ATTACKING state: Returns FULL sprite.getGlobalBounds()
+    (larger area so enemy sword swings connect with the player)
+  Otherwise: Returns reduced getGlobalBounds()
+
+================================================================================
+8. DAMAGE & DEATH — Enemy.cpp, Lines 363–423
+================================================================================
+
+8.1  isDead() (Line 363–365) → Returns state == DEAD
+
+8.2  getType() (Line 367–369) → Returns type (0-3)
+
+8.3  getState() (Line 371–373) → Returns current EnemyState
+
+8.4  kill() (Lines 375–382)
+─────────────────────────
+  Guard: if state != DEAD and != DYING
+  Effect: Transitions to DYING state
+    - Resets effect animation to frame 0
+    - Sets effect TextureRect to death row (y = 0)
+
+8.5  takeDamage(dmg, sourcePos) (Lines 384–423)
+───────────────────────────────────────────────
+  Guard: Returns false if DEAD, DYING, or SPAWNING
+
+  1. hp -= dmg
+  2. Calculates knockback direction: (enemyPos - sourcePos) normalized
+  3. If hp <= 0: calls kill(), returns true (enemy died)
+  4. If hp > 0 and type >= 1:
+     - Transitions to HURT state
+     - Swaps texture to hurtTexture, columns to hurtColumns
+     - Sets knockbackVelocity = direction × 250.0f
+     - Faces player during hurt animation
+  5. Returns false (enemy survived)
+
+================================================================================
+9. ENEMY SPAWNING — main.cpp, Lines 182–246 (spawnEnemy)
+================================================================================
+
+  void spawnEnemy(vector<Enemy*>& enemies, const Map& gameMap,
+                  const Vector2f& playerPos, int level)
+
+  LEVEL-BASED ENEMY SELECTION (Lines 187–206):
+    Level 1 (Skeleton Horde):   Only type 0 skeletons
+    Level 2 (Dark Warriors):    Random 50/50: type 1 or type 2
+    Level 3 (Elite Beasts):     Random 50/50: type 2 or type 3
+    Level 4 (Infinite Slash):   Random 25% each: type 0, 1, 2, or 3
+
+  SAFE SPAWN POSITION (Lines 208–239):
+    Attempts up to 50 random positions within playable area:
+      x ∈ [187, 2127], y ∈ [215, 1079]  (inside map boundaries)
+
+    Validation checks:
+    1. bounds.intersects(obstacle) → reject if inside any wall
+    2. distance to player > 300px → reject if too close to player
+
+    If no valid position found in 50 attempts, enemy is deleted (Line 244).
+
+================================================================================
+10. CONTACT DAMAGE — main.cpp, Lines 1005–1019
+================================================================================
+
+  ENEMY CONTACT (Lines 1007–1012):
+    For each enemy in ALIVE or ATTACKING state:
+      If enemy.getDamageBounds() intersects player.getGlobalBounds():
+        Damage: type >= 1 → 20.0f, type 0 → 10.0f
+        player.takeDamage(damage) — respects invincibility frames
+
+  SPIKE DAMAGE (Lines 1014–1019):
+    Props[0] and Props[1] are spikes:
+      If player bounds intersect spike bounds → player.takeDamage(10.0f)
+
+================================================================================
+11. ENDLESS SPAWNER — main.cpp, Lines 898–909
+================================================================================
+
+  Runs every frame during PLAYING state:
+    spawnTimer += dt
+    Count active (non-dead) enemies
+    If spawnTimer >= spawnInterval (3.0f or 2.0f for Level 1):
+      Reset timer
+      If activeEnemies < MAX_ENEMIES_ON_SCREEN (20):
+        spawnEnemy(enemies, gameMap, player.getPosition(), currentLevel)
+
+================================================================================
+12. COIN REWARD SYSTEM — main.cpp, Lines 496–503, 963–969
+================================================================================
+
+  On enemy death (from melee OR bullet):
+    Type 0 (Skeleton):  +10 coins
+    Type 1 (Enemy2):    +20 coins
+    Type 2+ (Enemy3/4): +25 coins
+    score += 10 for any kill
+
+================================================================================
+13. SUMMARY OF CONTRIBUTIONS
+================================================================================
+
+  ┌─────────────────────────────────────────────────────────────────┐
+  │  COMPONENT                    │ FILE           │ LINES         │
+  ├─────────────────────────────────────────────────────────────────┤
+  │  EnemyState enum              │ Enemy.h        │ 8–15          │
+  │  Enemy class declaration      │ Enemy.h        │ 17–76         │
+  │  Enemy constructor/destructor │ Enemy.cpp      │ 5–28          │
+  │  Basic enemy loading (type 0) │ Enemy.cpp      │ 30–59         │
+  │  Advanced enemy loading (1-3) │ Enemy.cpp      │ 61–100        │
+  │  Animation engine             │ Enemy.cpp      │ 102–129       │
+  │  AI update & state machine    │ Enemy.cpp      │ 131–271       │
+  │  Enemy rendering/draw         │ Enemy.cpp      │ 273–321       │
+  │  Hitbox systems               │ Enemy.cpp      │ 332–361       │
+  │  Damage & death logic         │ Enemy.cpp      │ 363–423       │
+  │  spawnEnemy function          │ main.cpp       │ 182–246       │
+  │  Contact damage system        │ main.cpp       │ 1005–1019     │
+  │  Endless spawner              │ main.cpp       │ 898–909       │
+  │  Coin reward system           │ main.cpp       │ 496–503,      │
+  │                               │                │ 963–969       │
+  └─────────────────────────────────────────────────────────────────┘
+
+  DATA STRUCTURES USED:
+  • std::vector<Enemy*> — dynamic enemy pool with pointer-based polymorphism
+  • EnemyState enum — finite state machine controlling behavior
+
+  KEY ALGORITHMS:
+  • Finite State Machine (6-state) with animated transitions
+  • Direct line-of-sight player pursuit AI
+  • Axis-separated collision resolution for wall sliding
+  • Exponential friction decay for knockback physics
+  • Safe spawn validation with retry loop
+
+================================================================================

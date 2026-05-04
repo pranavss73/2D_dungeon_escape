@@ -1,0 +1,308 @@
+================================================================================
+          PERSON 1 — PLAYER LOGIC, COMBAT SYSTEM & SKILL-TREE UPGRADES
+================================================================================
+
+RESPONSIBLE FILES:
+  • Player.h          (72 lines)    — Player class declaration
+  • Player.cpp        (287 lines)   — Full player implementation
+  • Bullet.h          (28 lines)    — Bullet class declaration
+  • Bullet.cpp        (60 lines)    — Bullet projectile implementation
+  • main.cpp (partial)              — Skill Tree data structure, profile persistence,
+                                      upgrade application, melee combat event handling
+
+TOTAL LINES OF CODE OWNED: ~590 lines (Player: 359, Bullet: 88, main.cpp portions: ~143)
+
+================================================================================
+1. PLAYER CLASS — Player.h / Player.cpp
+================================================================================
+
+1.1  DATA MEMBERS (Player.h, Lines 36–68)
+─────────────────────────────────────────
+  • sf::Texture idleTextures[4], runTextures[4], attackTextures[4]
+        → 12 textures total: 4 directions × 3 states (idle, run, attack)
+  • sf::Sprite sprite                → The rendered character sprite
+  • sf::Vector2f velocity            → Per-frame movement vector
+  • float speed = 200.0f             → Base movement speed (pixels/sec)
+  • int columns = 8                  → Sprite-sheet frame columns
+  • int currentDir                   → Direction index: 0=Up, 1=Down, 2=Right, 3=Left
+  • int currentFrameX                → Current animation frame index
+  • float animationTime / animationSpeed → Frame timing accumulators
+  • bool isAttacking                 → Whether the player is mid-swing
+  • float attackTimer / attackDuration = 0.3f → Slash duration timer
+  • sf::Vector2i frameSize = (96, 80) → Per-frame pixel dimensions
+  • float maxHealth = 100.0f, health  → Health resource (100 HP)
+  • float maxStamina = 50.0f, stamina → Stamina resource (50 SP)
+  • float damageCooldown             → Invincibility-frame timer (1 sec after hit)
+  • float speedMultiplier = 1.0f     → Multiplied by base speed (set by Skill Tree)
+  • int baseDamage = 10              → Melee damage per hit (set by Skill Tree)
+
+1.2  CONSTRUCTOR — Player.cpp, Lines 5–25
+──────────────────────────────────────────
+  Initializes all default values:
+    speed = 200.0f, columns = 1, currentDir = 1 (facing down),
+    attackDuration = 0.3f, maxHealth = 100, maxStamina = 50,
+    speedMultiplier = 1.0f, baseDamage = 10
+
+1.3  TEXTURE LOADING — Player.cpp, Lines 29–61 (loadTextures)
+──────────────────────────────────────────────────────────────
+  Loads 12 PNG sprite sheets from:
+    assets/Hero1/IDLE/idle_{up,down,right,left}.png
+    assets/Hero1/RUN/run_{up,down,right,left}.png
+    assets/Hero1/ATTACK_1_IDLE/attack1_{up,down,right,left}.png
+
+  Sets: columns = 8, frameSize = (96, 80)
+  Configures sprite origin to center, scale to 1.5×
+
+1.4  ANIMATION SYSTEM — Player.cpp, Lines 63–98 (updateAnimation)
+─────────────────────────────────────────────────────────────────
+  TWO MODES:
+  (a) Attack Animation (Lines 64–77):
+      - While isAttacking == true, advances frames at rate (attackDuration / columns)
+      - When attackTimer >= attackDuration, resets isAttacking to false
+      - Uses attackTextures[currentDir]
+
+  (b) Movement Animation (Lines 79–97):
+      - Determines direction from velocity vector:
+          velocity.y > 0 → Down(1); velocity.x < 0 → Left(3);
+          velocity.x > 0 → Right(2); velocity.y < 0 → Up(0)
+      - Selects runTextures[dir] if moving, idleTextures[dir] if stationary
+      - Advances frames at fixed animationSpeed = 0.1f
+
+1.5  MOVEMENT + OBSTACLE COLLISION — Player.cpp, Lines 100–158 (update)
+───────────────────────────────────────────────────────────────────────
+  Called every frame with (deltaTime, mousePos, gameMap).
+
+  STAMINA REGENERATION (Lines 103–109):
+    - Idle: +5.0f * dt per second
+    - Moving: +1.5f * dt per second
+    - Capped at maxStamina
+
+  DAMAGE COOLDOWN (Lines 112–114):
+    - damageCooldown decremented by dt each frame
+
+  KEYBOARD INPUT (Lines 116–121):
+    - W/A/S/D keys set velocity components to ±currentSpeed
+    - currentSpeed = speed * speedMultiplier (affected by upgrades)
+
+  AXIS-SEPARATED COLLISION (Lines 123–145):
+    - X-AXIS: Move sprite horizontally → check against ALL map obstacles →
+      if any intersects, revert X movement, zero velocity.x
+    - Y-AXIS: Move sprite vertically → check against ALL map obstacles →
+      if any intersects, revert Y movement, zero velocity.y
+    - This "move-then-revert" pattern enables wall sliding
+
+  MOUSE AIM (Lines 149–157):
+    - Calculates angle to mouse via atan2 (currently commented out for top-down style)
+
+1.6  RENDERING — Player.cpp, Lines 160–181 (draw)
+──────────────────────────────────────────────────
+  DRAW ORDER:
+  1. Shadow ellipse: CircleShape scaled to (1.0, 0.4) squash, translucent black
+     Positioned at sprite feet with visual offset calibration
+     (Line 163–170)
+  2. Main sprite: window.draw(sprite) (Line 173)
+  3. DEBUG collision box: Transparent green rectangle showing getGlobalBounds()
+     (Lines 176–180, alpha = 0 so invisible in release)
+
+1.7  HITBOX SYSTEM — Player.cpp, Lines 203–246
+──────────────────────────────────────────────
+  getGlobalBounds() (Lines 203–213):
+    Returns a REDUCED bounding box centered on the player's feet:
+      left + 40% width, top + 70% height, 15% width, 12% height
+    Purpose: Prevents invisible wall bumping — collision box is just the feet
+
+  getAttackBounds() (Lines 228–246):
+    Returns a DIRECTIONAL attack hitbox extending from the player:
+      Up:    Extends upward by 80px
+      Down:  Extends downward by 80px
+      Right: Extends rightward by 80px
+      Left:  Extends leftward by 80px
+    The attack box OVERLAYS the player bounds to prevent whiffing on close enemies
+
+1.8  MELEE ATTACK — Player.cpp, Lines 215–226 (attack)
+──────────────────────────────────────────────────────
+  Precondition: !isAttacking && stamina >= 10.0f
+  Effect:
+    - Drains 10 stamina
+    - Sets isAttacking = true, resets attack timer and animation
+    - Switches sprite to attackTextures[currentDir]
+    - Returns true (allows caller to process hit detection)
+
+1.9  RESOURCE MANAGEMENT — Player.cpp, Lines 248–271
+────────────────────────────────────────────────────
+  getHealth() / getStamina() — Simple const getters
+
+  takeDamage(amount) (Lines 257–263):
+    - Only applies if damageCooldown <= 0
+    - Subtracts amount from health, clamps to 0
+    - Sets damageCooldown = 1.0f (1 second of invincibility frames)
+
+  drainStamina(amount) (Lines 265–271):
+    - Returns false if insufficient stamina
+    - Otherwise subtracts and returns true
+
+  heal(amount) — declared in header but used for potential future healing items
+
+1.10 UPGRADE SETTERS — Player.cpp, Lines 183–193
+─────────────────────────────────────────────────
+  setSpeedMultiplier(float mult) → Sets speedMultiplier (used in update)
+  setBaseDamage(int damage)      → Sets baseDamage (returned by getDamage)
+  getDamage() → Returns baseDamage (used by melee and bullet hit detection)
+
+1.11 RESET — Player.cpp, Lines 273–286
+──────────────────────────────────────
+  Fully resets player to default state for retry/play-again:
+    health = max, stamina = max, damageCooldown = 0,
+    isAttacking = false, velocity = (0,0), facing down,
+    sprite set to idle texture at frame 0
+
+================================================================================
+2. BULLET CLASS — Bullet.h / Bullet.cpp
+================================================================================
+
+2.1  DATA MEMBERS (Bullet.h, Lines 18–24)
+─────────────────────────────────────────
+  • sf::RectangleShape shape   → Visual: 15×4 bright yellow rectangle with orange glow
+  • sf::Vector2f velocity      → Normalized direction × speed
+  • float speed = 600.0f       → Bullet travel speed (pixels/sec)
+  • bool active                → Alive flag
+  • float lifetime / maxLifetime = 3.0f → Auto-destroy after 3 seconds
+
+2.2  CONSTRUCTOR — Bullet.cpp, Lines 4–28
+─────────────────────────────────────────
+  Takes (startPos, direction, rotation):
+  - Creates 15×4 rectangle, FillColor(255,255,100), Outline(255,150,0)
+  - Calculates rotation angle via atan2 and applies to shape
+  - Normalizes direction vector and sets velocity = normalized × 600
+
+2.3  UPDATE — Bullet.cpp, Lines 32–41
+─────────────────────────────────────
+  - Moves shape by velocity * deltaTime
+  - Increments lifetime; deactivates if >= maxLifetime
+
+2.4  DRAW — Bullet.cpp, Lines 43–47
+───────────────────────────────────
+  - Draws shape if active
+
+2.5  COLLISION — Bullet.cpp, Lines 49–59
+────────────────────────────────────────
+  getGlobalBounds() → Returns shape's bounds for intersection tests
+  isActive()        → Returns active flag
+  destroy()         → Sets active = false (called on enemy hit or wall hit)
+
+================================================================================
+3. SKILL TREE (N-ARY TREE DATA STRUCTURE) — main.cpp, Lines 76–180
+================================================================================
+
+3.1  SkillNode STRUCT (Lines 76–88)
+───────────────────────────────────
+  struct SkillNode {
+      string id, displayName;
+      int cost;
+      bool unlocked;
+      vector<SkillNode*> children;    // N-ary tree child pointers
+  };
+
+  Destructor recursively deletes all children → prevents memory leaks.
+
+3.2  TREE INITIALIZATION — initSkillTree() (Lines 93–112)
+─────────────────────────────────────────────────────────
+  Builds the following N-ary tree:
+
+                       [Root] (always unlocked)
+                      /                \
+              [Speed Lvl.1]        [Power Lvl.1]
+              (free, unlocked)     (free, unlocked)
+                    |                    |
+              [Speed Lvl.2]        [Power Lvl.2]
+              (cost: 1000)         (cost: 1000)
+                    |                    |
+              [Speed Lvl.3]        [Power Lvl.3]
+              (cost: 2000)         (cost: 2000)
+
+  Tree has depth 4, branching factor 2 at root, 1 elsewhere.
+
+3.3  PROFILE PERSISTENCE — saveProfile / loadProfile (Lines 114–138)
+────────────────────────────────────────────────────────────────────
+  saveProfile() — Writes to profile.txt:
+    Line 1: availableCoins
+    Line 2: speed2.unlocked (0 or 1)
+    Line 3: speed3.unlocked
+    Line 4: power2.unlocked
+    Line 5: power3.unlocked
+
+  loadProfile(fallbackCoins) — Reads from profile.txt:
+    - Parses each line and sets unlock booleans
+    - If file doesn't exist, initializes coins from fallbackCoins and saves
+
+3.4  APPLYING UPGRADES — applyPlayerStatsFromTree (Lines 141–163)
+────────────────────────────────────────────────────────────────
+  Traverses speed branch counting unlocked tiers:
+    Tier 1 → speedMultiplier = 1.0f
+    Tier 2 → speedMultiplier = 1.1f  (+10% speed)
+    Tier 3 → speedMultiplier = 1.2f  (+20% speed)
+
+  Traverses power branch counting unlocked tiers:
+    Tier 1 → baseDamage = 10
+    Tier 2 → baseDamage = 15  (+50% damage)
+    Tier 3 → baseDamage = 20  (+100% damage)
+
+3.5  PURCHASING UPGRADES — buyNextNode (Lines 166–180)
+─────────────────────────────────────────────────────
+  Traverses a branch (speed or power) to find the deepest unlocked node.
+  If next child exists and is locked:
+    - Checks availableCoins >= child.cost
+    - Deducts cost, sets unlocked = true
+    - Calls saveProfile() for immediate persistence
+
+3.6  STORE MENU INTERACTION — main.cpp, Lines 448–457
+─────────────────────────────────────────────────────
+  Click on Speed "+ (Cost: X)" button → buyNextNode(speed branch)
+  Click on Power "+ (Cost: X)" button → buyNextNode(power branch)
+  Both call applyPlayerStatsFromTree(player) immediately after purchase.
+
+================================================================================
+4. MELEE COMBAT EVENT HANDLING — main.cpp, Lines 488–508
+================================================================================
+
+  Triggered by SPACEBAR press during PLAYING state:
+  1. player.attack() → returns true if stamina available
+  2. slashSound.play() → audio feedback
+  3. Gets player.getAttackBounds() → directional attack rectangle
+  4. Iterates ALL enemies:
+     - If !dead AND attackArea intersects enemy bounds:
+       - enemy.takeDamage(player.getDamage(), player.getPosition())
+       - If enemy dies: score += 10, enemiesKilled++
+       - Coin rewards: type 0 → 10, type 1 → 20, type 2+ → 25
+
+================================================================================
+5. SUMMARY OF CONTRIBUTIONS
+================================================================================
+
+  ┌─────────────────────────────────────────────────────────────────┐
+  │  COMPONENT                    │ FILE           │ LINES         │
+  ├─────────────────────────────────────────────────────────────────┤
+  │  Player class declaration     │ Player.h       │ 1–72          │
+  │  Player implementation        │ Player.cpp     │ 1–287         │
+  │  Bullet class declaration     │ Bullet.h       │ 1–28          │
+  │  Bullet implementation        │ Bullet.cpp     │ 1–60          │
+  │  SkillNode struct (N-ary tree)│ main.cpp       │ 76–88         │
+  │  Skill Tree init              │ main.cpp       │ 90–112        │
+  │  Profile save/load            │ main.cpp       │ 114–138       │
+  │  Apply upgrades to player     │ main.cpp       │ 140–163       │
+  │  Buy next node logic          │ main.cpp       │ 165–180       │
+  │  Melee combat handling        │ main.cpp       │ 488–508       │
+  │  Store menu click handlers    │ main.cpp       │ 448–457       │
+  └─────────────────────────────────────────────────────────────────┘
+
+  DATA STRUCTURES USED:
+  • N-ary Tree (SkillNode) — persistent upgrade tree with depth-first traversal
+  • std::vector<SkillNode*> — dynamic child list per node
+
+  KEY ALGORITHMS:
+  • Axis-separated collision resolution (slide along walls)
+  • Directional attack hitbox generation
+  • Depth-first tree traversal for upgrade tier calculation
+  • Invincibility-frame damage gating
+
+================================================================================

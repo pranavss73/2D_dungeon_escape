@@ -11,6 +11,7 @@ Map::Map() {
     doorOpen = false;
     doorObstacleRect = sf::FloatRect(1871.f, 752.f, 124.f, 96.f);
     doorAreaBounds   = sf::FloatRect(1871.f, 752.f, 124.f, 96.f);
+    chestOpened = false;
 }
 
 Map::~Map() {}
@@ -144,6 +145,8 @@ bool Map::load(const std::string& texturePath) {
     // Preload map2 texture (used when door opens)
     doorOpen = false;
     map2Texture.loadFromFile("assets/map2.jpg");
+    
+    chestOpened = false;
 
     return true;
 }
@@ -153,6 +156,9 @@ void Map::draw(sf::RenderWindow& window) {
 
     // Draw objects
     for (size_t i = 0; i < props.size(); ++i) {
+        // Skip drawing the chest if it has been opened
+        if (i == 2 && chestOpened) continue;
+
         // Draw shadow beneath the chest (which is the 3rd prop inserted)
         if (i == 2) {
             sf::FloatRect bounds = props[i].getGlobalBounds();
@@ -310,6 +316,24 @@ sf::FloatRect Map::getDoorAreaBounds() const {
     return doorAreaBounds;
 }
 
+// --- Chest ---
+bool Map::isChestOpened() const {
+    return chestOpened;
+}
+
+void Map::openChest() {
+    chestOpened = true;
+}
+
+sf::FloatRect Map::getChestBounds() const {
+    if (props.size() > 2) {
+        // Expand the bounds slightly to make it easier to intersect with
+        sf::FloatRect b = props[2].getGlobalBounds();
+        return sf::FloatRect(b.left - 20.f, b.top - 20.f, b.width + 40.f, b.height + 40.f);
+    }
+    return sf::FloatRect(1920, 235, 76, 66); // fallback region provided by user
+}
+
 void Map::reset() {
     // Reset lever 1
     if (leverPulled) {
@@ -334,4 +358,7 @@ void Map::reset() {
         mapSprite.setTexture(mapTexture); // swap back to original map
         obstacles.push_back(doorObstacleRect);
     }
+
+    // Reset chest
+    chestOpened = false;
 }

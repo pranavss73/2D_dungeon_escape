@@ -1,0 +1,474 @@
+================================================================================
+                    FINAL — OVERALL SYSTEM ARCHITECTURE
+                     FILE STRUCTURE & PROJECT OVERVIEW
+================================================================================
+         DUNGEON ESCAPE — 2D Top-Down RPG with DSA QuadTree Integration
+================================================================================
+
+================================================================================
+1. PROJECT OVERVIEW
+================================================================================
+
+  PROJECT NAME:    Dungeon Escape
+  COURSE:          Data Structures II — Course Project
+  ENGINE:          Custom C++ game engine built on SFML 2.x
+  PLATFORM:        Windows (Visual Studio 2022, x64)
+  GENRE:           Top-down 2D dungeon-crawler action RPG
+
+  CORE CONCEPT:
+  The player navigates a dungeon, fights waves of enemies using melee combat,
+  solves lever-based puzzles to unlock new areas, collects a key to open the
+  exit door, and escapes. Features persistent progression via a Skill Tree
+  upgrade system and match history tracking.
+
+  DSA FOCUS:
+  • QuadTree — Spatial partitioning for efficient collision detection
+  • N-ary Tree — Skill tree for persistent player upgrades
+  • Vectors — Dynamic entity management throughout
+
+================================================================================
+2. TECHNOLOGY STACK
+================================================================================
+
+  ┌────────────────────────────────────────────────────────────────────┐
+  │  LAYER              │ TECHNOLOGY                                  │
+  ├────────────────────────────────────────────────────────────────────┤
+  │  Language            │ C++ (C++14 standard)                       │
+  │  Graphics Library    │ SFML 2.x (Simple and Fast Multimedia Lib)  │
+  │  Audio               │ SFML Audio module (OpenAL backend)         │
+  │  Build System        │ Visual Studio 2022 (MSBuild, .vcxproj)    │
+  │  Target Platform     │ Windows x64                               │
+  │  Asset Format        │ PNG (sprites), JPG (maps), WAV (audio)    │
+  │  Persistence         │ Plain text files (CSV, line-delimited)    │
+  └────────────────────────────────────────────────────────────────────┘
+
+  SFML MODULES USED:
+  • sfml-graphics  → Rendering, textures, sprites, shapes, text, views
+  • sfml-window    → Window management, input events, keyboard/mouse
+  • sfml-audio     → Music streaming, sound buffers, sound playback
+  • sfml-system    → Clocks, vectors, time utilities
+
+================================================================================
+3. FILE STRUCTURE
+================================================================================
+
+  project2/
+  ├── project2.sln                    — Visual Studio solution file
+  │
+  ├── project2/                       — Main source & asset directory
+  │   ├── main.cpp                    (1254 lines) — Game loop, state machine,
+  │   │                                               menus, HUD, audio, persistence,
+  │   │                                               skill tree, spawning
+  │   │
+  │   ├── Player.h                    (72 lines)   — Player class declaration
+  │   ├── Player.cpp                  (287 lines)  — Player movement, animation,
+  │   │                                               combat, resources, collision
+  │   │
+  │   ├── Enemy.h                     (77 lines)   — Enemy class + EnemyState enum
+  │   ├── Enemy.cpp                   (425 lines)  — Enemy AI, state machine,
+  │   │                                               animation, damage, types
+  │   │
+  │   ├── Map.h                       (96 lines)   — Map class declaration
+  │   ├── Map.cpp                     (365 lines)  — Map loading, obstacles,
+  │   │                                               levers, door, key, chest
+  │   │
+  │   ├── QuadTree.h                  (38 lines)   — QuadTree + QuadTreeData
+  │   ├── QuadTree.cpp                (113 lines)  — Spatial partitioning impl.
+  │   │
+  │   ├── Bullet.h                    (28 lines)   — Bullet class declaration
+  │   ├── Bullet.cpp                  (60 lines)   — Projectile logic
+  │   │
+  │   ├── save_data.txt               — Match history (CSV: level,status,score,kills,coins)
+  │   ├── profile.txt                 — Persistent upgrades (coins + unlock flags)
+  │   │
+  │   ├── assets/                     — All game assets
+  │   │   ├── map.jpg                 — Primary dungeon map background
+  │   │   ├── map2.jpg                — Alternate map (door open variant)
+  │   │   ├── enemy.png               — Skeleton sprite sheet (type 0)
+  │   │   ├── arial.ttf               — UI font
+  │   │   │
+  │   │   ├── Hero1/                  — Player character sprites
+  │   │   │   ├── IDLE/               — 4 directional idle sheets
+  │   │   │   │   ├── idle_up.png
+  │   │   │   │   ├── idle_down.png
+  │   │   │   │   ├── idle_right.png
+  │   │   │   │   └── idle_left.png
+  │   │   │   ├── RUN/                — 4 directional run sheets
+  │   │   │   │   ├── run_up.png
+  │   │   │   │   ├── run_down.png
+  │   │   │   │   ├── run_right.png
+  │   │   │   │   └── run_left.png
+  │   │   │   └── ATTACK_1_IDLE/      — 4 directional attack sheets
+  │   │   │       ├── attack1_up.png
+  │   │   │       ├── attack1_down.png
+  │   │   │       ├── attack1_right.png
+  │   │   │       └── attack1_left.png
+  │   │   │
+  │   │   ├── enemies/                — Advanced enemy sprites (types 1-3)
+  │   │   │   ├── enemy2_run_with_shadow.png
+  │   │   │   ├── enemy2_attack_with_shadow.png
+  │   │   │   ├── enemy2_hurt_with_shadow.png
+  │   │   │   ├── enemy3_run_with_shadow.png
+  │   │   │   ├── enemy3_attack_with_shadow.png
+  │   │   │   ├── enemy3_hurt_with_shadow.png
+  │   │   │   ├── enemy4_run_with_shadow.png
+  │   │   │   ├── enemy4_attack_with_shadow.png
+  │   │   │   └── enemy4_hurt_with_shadow.png
+  │   │   │
+  │   │   ├── effect/                 — Particle effects
+  │   │   │   └── enemy_die_spawn.png — 11-frame spawn/death effect sheet
+  │   │   │
+  │   │   ├── objects/                — Interactive object sprites
+  │   │   │   ├── lever.png           — Lever handle
+  │   │   │   ├── block.png           — Vertical blockade
+  │   │   │   ├── block_hz.png        — Horizontal blockade
+  │   │   │   ├── spikes.png          — Spike trap
+  │   │   │   ├── chest.png           — Treasure chest
+  │   │   │   ├── key.png             — Key pickup
+  │   │   │   └── coin.png            — Coin HUD icon
+  │   │   │
+  │   │   └── sound/                  — Audio files
+  │   │       ├── music.wav           — Background music (looped)
+  │   │       ├── slash.wav           — Melee attack SFX
+  │   │       └── game_over.wav       — Death music (one-shot)
+  │   │
+  │   ├── project2.vcxproj           — VS project file
+  │   ├── project2.vcxproj.filters   — VS file organization
+  │   └── project2.vcxproj.user      — VS user settings
+  │
+  ├── dependencies/                   — SFML library dependencies
+  │   └── (SFML headers, libs, DLLs)
+  │
+  └── x64/                           — Build output
+      └── Debug/                      — Debug build artifacts
+
+  SOURCE CODE STATISTICS:
+  ┌──────────────────────────────────────────────┐
+  │  FILE           │ LINES  │ BYTES  │ PURPOSE  │
+  ├──────────────────────────────────────────────┤
+  │  main.cpp       │  1254  │ 51711  │ Core     │
+  │  Enemy.cpp      │   425  │ 15450  │ Enemy    │
+  │  Map.cpp        │   365  │ 12544  │ Map      │
+  │  Player.cpp     │   287  │ 10138  │ Player   │
+  │  QuadTree.cpp   │   113  │  3602  │ DSA      │
+  │  Map.h          │    96  │  2373  │ Header   │
+  │  Enemy.h        │    77  │  1650  │ Header   │
+  │  Player.h       │    72  │  1539  │ Header   │
+  │  Bullet.cpp     │    60  │  1586  │ Bullet   │
+  │  QuadTree.h     │    38  │  1014  │ Header   │
+  │  Bullet.h       │    28  │   553  │ Header   │
+  ├──────────────────────────────────────────────┤
+  │  TOTAL          │  2815  │~102KB  │          │
+  └──────────────────────────────────────────────┘
+
+================================================================================
+4. SYSTEM ARCHITECTURE
+================================================================================
+
+4.1  HIGH-LEVEL ARCHITECTURE DIAGRAM
+─────────────────────────────────────
+
+  ┌─────────────────────────────────────────────────────────────┐
+  │                        main.cpp                             │
+  │  ┌──────────────────────────────────────────────────────┐  │
+  │  │              GAME STATE MACHINE                      │  │
+  │  │  MAIN_MENU → LEVEL_SELECT → PLAYING ↔ PAUSED       │  │
+  │  │                             ↓           ↓            │  │
+  │  │                        GAME_OVER   ESCAPED           │  │
+  │  │                        STORE_MENU  SCORES_MENU       │  │
+  │  └──────────────────────────────────────────────────────┘  │
+  │                           │                                 │
+  │  ┌────────────┐ ┌────────┴────────┐ ┌──────────────────┐  │
+  │  │ UI/Screens │ │  Game Systems   │ │   Persistence    │  │
+  │  │ - Menus    │ │ - Spawn logic   │ │ - save_data.txt  │  │
+  │  │ - HUD      │ │ - Combat loop   │ │ - profile.txt    │  │
+  │  │ - Overlays │ │ - Camera        │ │ - Skill Tree     │  │
+  │  │ - Buttons  │ │ - Audio         │ │ - Game Records   │  │
+  │  └────────────┘ └────────┬────────┘ └──────────────────┘  │
+  │                           │                                 │
+  └───────────────────────────┼─────────────────────────────────┘
+                              │
+          ┌───────────────────┼───────────────────┐
+          │                   │                   │
+  ┌───────┴───────┐  ┌───────┴───────┐  ┌───────┴───────┐
+  │    Player     │  │     Map       │  │    Enemy      │
+  │  ─────────    │  │  ─────────    │  │  ─────────    │
+  │  Movement     │  │  Obstacles    │  │  AI Chase     │
+  │  Animation    │  │  Levers/Door  │  │  State Machine│
+  │  Combat       │  │  Key/Chest    │  │  Animation    │
+  │  Resources    │  │  Props/Spikes │  │  Damage/Death │
+  │  Hitboxes     │  │  Map Swapping │  │  Types (0-3)  │
+  └───────────────┘  └───────────────┘  └───────────────┘
+          │                                       │
+          │         ┌───────────────┐              │
+          └────────→│   QuadTree    │←─────────────┘
+                    │  ─────────    │
+                    │  Spatial      │
+                    │  Partitioning │
+                    │  Insert/Query │
+                    └───────┬───────┘
+                            │
+                    ┌───────┴───────┐
+                    │    Bullet     │
+                    │  ─────────    │
+                    │  Projectile   │
+                    │  Movement     │
+                    │  Collision    │
+                    └───────────────┘
+
+4.2  FRAME EXECUTION FLOW
+─────────────────────────
+
+  ┌──────────────────────────────────────────────────────────────────┐
+  │  FRAME START                                                     │
+  │  1. Calculate deltaTime (dt)                                     │
+  │  2. Get mouse position (screen-space)                            │
+  │                                                                  │
+  │  3. EVENT POLLING                                                │
+  │     ├── Window close events                                      │
+  │     ├── Escape key (pause toggle)                                │
+  │     ├── Mouse clicks (menu button routing)                       │
+  │     └── Spacebar (melee attack + hit detection)                  │
+  │                                                                  │
+  │  4. STATE-SPECIFIC RENDERING                                     │
+  │     ├── MAIN_MENU/STORE/SCORES/LEVEL_SELECT → render + continue  │
+  │     ├── ESCAPED/GAME_OVER → render + continue                   │
+  │     └── PLAYING/PAUSED → proceed to game update                 │
+  │                                                                  │
+  │  5. GAMEPLAY UPDATE (PLAYING only)                               │
+  │     ├── Spawn timer check → spawnEnemy() if needed               │
+  │     ├── Player input → update position → obstacle collision      │
+  │     ├── Camera follow player                                     │
+  │     ├── Build QuadTree (clear + insert all enemies)              │
+  │     ├── Update all enemies (AI, animation, state)                │
+  │     ├── Update bullets → wall collision → QuadTree query         │
+  │     ├── Environmental pickups (key, chest)                       │
+  │     ├── Win zone check (door)                                    │
+  │     ├── Enemy contact damage → player                            │
+  │     ├── Spike damage → player                                    │
+  │     └── Death check → state transition                           │
+  │                                                                  │
+  │  6. WORLD RENDERING                                              │
+  │     ├── Map background + props                                   │
+  │     ├── All enemies                                              │
+  │     ├── Player                                                   │
+  │     ├── Bullets                                                  │
+  │     └── World-space UI (lever/door prompts)                      │
+  │                                                                  │
+  │  7. HUD RENDERING (screen-space)                                 │
+  │     ├── Score (top-left)                                         │
+  │     ├── Coins (top-right)                                        │
+  │     ├── Health bar (bottom-center)                               │
+  │     └── Stamina bar (bottom-center, below health)               │
+  │                                                                  │
+  │  8. PAUSE OVERLAY (if PAUSED)                                    │
+  │                                                                  │
+  │  9. window.display()                                             │
+  │  FRAME END                                                       │
+  └──────────────────────────────────────────────────────────────────┘
+
+================================================================================
+5. DATA STRUCTURES SUMMARY
+================================================================================
+
+  ┌──────────────────────────────────────────────────────────────────────────┐
+  │  DATA STRUCTURE          │ USAGE                       │ LOCATION       │
+  ├──────────────────────────────────────────────────────────────────────────┤
+  │  QuadTree                │ Spatial partitioning for    │ QuadTree.h/cpp │
+  │  (custom implementation) │ bullet-enemy collision      │                │
+  │                          │ optimization                │                │
+  │                          │                             │                │
+  │  N-ary Tree (SkillNode)  │ Persistent skill upgrade    │ main.cpp       │
+  │  (custom implementation) │ tree with 2 branches        │ Lines 76–180   │
+  │                          │ (Speed, Power), depth 4     │                │
+  │                          │                             │                │
+  │  std::vector<Enemy*>     │ Dynamic enemy pool          │ main.cpp       │
+  │                          │ (heap-allocated, pointer)   │ Line 304       │
+  │                          │                             │                │
+  │  std::vector<Bullet*>    │ Dynamic bullet pool         │ main.cpp       │
+  │                          │ (heap-allocated, pointer)   │ Line 307       │
+  │                          │                             │                │
+  │  std::vector<FloatRect>  │ Map obstacle collision      │ Map.h          │
+  │                          │ rectangles (dynamic add/    │ Line 55        │
+  │                          │ remove for lever/door)      │                │
+  │                          │                             │                │
+  │  std::vector<Sprite>     │ Map props (spikes, chest)   │ Map.h          │
+  │                          │                             │ Line 59        │
+  │                          │                             │                │
+  │  std::vector<GameRecord> │ Match history with CSV      │ main.cpp       │
+  │                          │ file persistence            │ Line 371       │
+  │                          │                             │                │
+  │  enum EnemyState         │ 6-state finite state        │ Enemy.h        │
+  │                          │ machine for enemy behavior  │ Lines 8–15     │
+  │                          │                             │                │
+  │  enum GameState          │ 8-state game state machine  │ main.cpp       │
+  │                          │ for screen management       │ Line 360       │
+  │                          │                             │                │
+  │  sf::FloatRect (AABB)    │ Axis-aligned bounding box   │ Throughout     │
+  │                          │ for all collision detection  │                │
+  └──────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+6. ALGORITHM COMPLEXITY ANALYSIS
+================================================================================
+
+  ┌───────────────────────────────────────────────────────────────────────┐
+  │  ALGORITHM                  │ COMPLEXITY      │ PER-FRAME CALLS     │
+  ├───────────────────────────────────────────────────────────────────────┤
+  │  QuadTree Build             │ O(n log n)      │ 1                   │
+  │  QuadTree Query (per obj)   │ O(log n + k)    │ b (num bullets)     │
+  │  QuadTree Insert (per obj)  │ O(log n)        │ n (num enemies)     │
+  │  Player-Obstacle Collision  │ O(m)            │ 1 (m = obstacles)   │
+  │  Enemy-Obstacle Collision   │ O(m)            │ n (per enemy)       │
+  │  Melee AoE Hit Detection    │ O(n)            │ On attack only      │
+  │  Enemy-Player Damage Check  │ O(n)            │ 1                   │
+  │  Safe Spawn Validation      │ O(50 × m)       │ On spawn only       │
+  │  Skill Tree Traversal       │ O(d)            │ On upgrade only     │
+  │  CSV Parse (load records)   │ O(r)            │ On startup only     │
+  └───────────────────────────────────────────────────────────────────────┘
+  Where: n = enemies, m = obstacles, b = bullets, k = candidates, d = tree depth, r = records
+
+================================================================================
+7. GAME FEATURES SUMMARY
+================================================================================
+
+  CORE GAMEPLAY:
+  ✓ WASD keyboard movement with wall sliding
+  ✓ 4-directional sprite animation (idle, run, attack)
+  ✓ Melee combat with stamina cost and directional hitboxes
+  ✓ Health and stamina resource management
+  ✓ Invincibility frames after taking damage
+  ✓ Shadow rendering for depth illusion
+
+  ENEMY SYSTEM:
+  ✓ 4 enemy types with scaling HP, speed, and damage
+  ✓ 6-state AI state machine (spawn, alive, attack, hurt, dying, dead)
+  ✓ Line-of-sight player pursuit with obstacle avoidance
+  ✓ Knockback on damage with friction physics
+  ✓ Spawn/death particle effects
+  ✓ Endless wave spawning with screen-cap
+
+  MAP & PUZZLES:
+  ✓ Dungeon layout with 16+ collision zones
+  ✓ 2 lever puzzles unlocking map sections
+  ✓ Key-and-door escape mechanic
+  ✓ Treasure chest with coin reward
+  ✓ Spike traps with environmental damage
+  ✓ Interactive world-space UI prompts
+
+  PROGRESSION:
+  ✓ Coin economy (earned per kill and chest)
+  ✓ N-ary Skill Tree (Speed: 3 tiers, Power: 3 tiers)
+  ✓ Persistent profile (profile.txt)
+  ✓ Match history tracking (save_data.txt)
+  ✓ High score tracking across sessions
+
+  UI/UX:
+  ✓ 8-state game state machine
+  ✓ Themed dungeon-style menus with hover effects
+  ✓ 4 difficulty levels
+  ✓ Segmented health/stamina bars
+  ✓ Score and coin HUD
+  ✓ Pause menu with resume/retry/home/quit
+  ✓ Game over and victory screens
+  ✓ Score history viewer (10 recent matches)
+  ✓ Upgrade store with real-time feedback
+
+  AUDIO:
+  ✓ Looping background music
+  ✓ Attack sound effects
+  ✓ Game over music
+  ✓ State-aware audio management
+
+  TECHNICAL:
+  ✓ QuadTree spatial partitioning (core DSA requirement)
+  ✓ N-ary Tree for skill upgrades (additional DSA)
+  ✓ Frame-independent timing (deltaTime)
+  ✓ Camera follow with world/screen space separation
+  ✓ Proper memory management (heap cleanup)
+  ✓ File-based persistence (CSV + line-delimited)
+
+================================================================================
+8. WORK DISTRIBUTION SUMMARY
+================================================================================
+
+  ┌──────────────────────────────────────────────────────────────────────────┐
+  │  PERSON  │ ROLE                           │ FILES OWNED    │ ~LINES    │
+  ├──────────────────────────────────────────────────────────────────────────┤
+  │  1       │ Player Logic, Combat & Upgrades │ Player.h/cpp, │   ~590    │
+  │          │ (Movement, Animation, Attack,   │ Bullet.h/cpp, │           │
+  │          │  Resources, Skill Tree N-ary)   │ main.cpp part │           │
+  │          │                                 │               │           │
+  │  2       │ Enemy Logic (AI, State Machine, │ Enemy.h/cpp,  │   ~600    │
+  │          │  4 Types, Spawning, Damage,     │ main.cpp part │           │
+  │          │  Death, Animations, Rewards)    │               │           │
+  │          │                                 │               │           │
+  │  3       │ QuadTree & All Collision Logic  │ QuadTree.h/   │   ~300    │
+  │          │ (Spatial Partitioning, AABB,    │ cpp,          │           │
+  │          │  Bullet-Enemy via QT, Wall      │ main.cpp part │           │
+  │          │  Collision, Proximity Checks)   │               │           │
+  │          │                                 │               │           │
+  │  4       │ Map & Obstacles Design          │ Map.h/cpp,    │   ~560    │
+  │          │ (Dungeon Layout, Walls, Levers, │ main.cpp part │           │
+  │          │  Door/Key/Chest, Props, Spikes) │               │           │
+  │          │                                 │               │           │
+  │  5       │ Game Loop, Screens, HUD, Audio  │ main.cpp      │   ~810    │
+  │          │ (State Machine, All Menus,      │ (primary)     │           │
+  │          │  Camera, Persistence, Reset,    │               │           │
+  │          │  Health/Stamina Bars, Audio)    │               │           │
+  ├──────────────────────────────────────────────────────────────────────────┤
+  │  TOTAL   │                                │ 11 source     │  ~2860    │
+  │          │                                │ files         │  lines    │
+  └──────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+9. BUILD & RUN INSTRUCTIONS
+================================================================================
+
+  PREREQUISITES:
+  • Visual Studio 2022 (with C++ Desktop Development workload)
+  • SFML 2.x libraries (included in dependencies/ folder)
+
+  BUILD:
+  1. Open project2.sln in Visual Studio 2022
+  2. Set configuration to Debug | x64
+  3. Build → Build Solution (Ctrl+Shift+B)
+
+  RUN:
+  1. Ensure SFML DLLs are in the output directory (x64/Debug/)
+  2. Ensure assets/ folder is accessible from the working directory
+  3. Press F5 (Debug) or Ctrl+F5 (Run without debugging)
+
+  CONTROLS:
+    W/A/S/D   — Move player
+    SPACE     — Melee attack (costs 10 stamina)
+    E         — Interact (levers, door)
+    ESC       — Pause/Resume
+    MOUSE     — Menu navigation (click buttons)
+
+================================================================================
+10. PERSISTENCE FILES
+================================================================================
+
+  save_data.txt — Match history (appended after each game):
+    FORMAT: levelName,status,score,kills,coins
+    EXAMPLE:
+      Easy,Win,120,12,180
+      Hard,Lose,50,5,75
+      Hell,Win,340,34,430
+
+  profile.txt — Persistent player profile:
+    FORMAT (5 lines):
+      Line 1: availableCoins (integer)
+      Line 2: speed2 unlocked (0 or 1)
+      Line 3: speed3 unlocked (0 or 1)
+      Line 4: power2 unlocked (0 or 1)
+      Line 5: power3 unlocked (0 or 1)
+    EXAMPLE:
+      3500
+      1
+      0
+      1
+      1
+
+================================================================================

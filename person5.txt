@@ -1,0 +1,564 @@
+================================================================================
+   PERSON 5 — GAME LOOP, STATE MACHINE, SCREENS, HUD, AUDIO & PERSISTENCE
+================================================================================
+
+RESPONSIBLE FILES:
+  • main.cpp (primary) — Game loop, state machine, all menu/overlay screens,
+                          HUD rendering, audio system, data persistence,
+                          camera system, window management, cleanup
+
+TOTAL LINES OF CODE OWNED: ~810 lines (main.cpp portions not covered by persons 1–4)
+
+================================================================================
+1. FILE INCLUDES & CONSTANTS — main.cpp, Lines 1–20
+================================================================================
+
+  INCLUDES (Lines 1–15):
+    SFML:     Graphics.hpp, Audio.hpp
+    C++ STL:  iostream, vector, cstdlib, ctime, string, fstream, sstream
+    Project:  Map.h, Player.h, Enemy.h, Bullet.h, QuadTree.h
+
+  CONSTANTS (Lines 17–20):
+    WINDOW_WIDTH  = 1280       → Render window width
+    WINDOW_HEIGHT = 720        → Render window height
+    INITIAL_ENEMY_COUNT = 10   → Enemies spawned at level start
+    MAX_ENEMIES_ON_SCREEN = 20 → Cap for endless spawner
+
+================================================================================
+2. DATA PERSISTENCE — GAME RECORDS — main.cpp, Lines 22–73
+================================================================================
+
+2.1  GameRecord STRUCT (Lines 23–29)
+────────────────────────────────────
+  struct GameRecord {
+      string levelName;     // "Easy", "Medium", "Hard", "Hell"
+      string status;        // "Win" or "Lose"
+      int score;            // Points earned
+      int enemiesKilled;    // Kill count
+      int coins;            // Coins earned
+  };
+
+2.2  loadGameRecords() (Lines 31–61)
+────────────────────────────────────
+  Reads "save_data.txt" — CSV format: levelName,status,score,kills,coins
+  Parses each line with stringstream and comma delimiter.
+  Accumulates totalCoins and tracks highScore across all records.
+  Populates vector<GameRecord> matchHistory.
+
+  FILE FORMAT (save_data.txt):
+    Easy,Win,120,12,180
+    Hard,Lose,50,5,75
+    ...
+
+2.3  saveGameRecord() (Lines 63–73)
+───────────────────────────────────
+  Appends a single new GameRecord to save_data.txt.
+  Updates totalCoins and highScore in-memory.
+  Opens file in append mode (std::ios::app).
+
+  Called at TWO places:
+    - Line 997: On victory (ESCAPED_STATE transition)
+    - Line 1024: On death (GAME_OVER_STATE transition)
+
+================================================================================
+3. GAME STATE MACHINE — main.cpp
+================================================================================
+
+3.1  STATE ENUM (Line 360)
+──────────────────────────
+  enum GameState {
+      MAIN_MENU,       // Title screen with Play/Store/Scores/Quit
+      LEVEL_SELECT,    // Choose difficulty (Easy/Medium/Hard/Hell)
+      STORE_MENU,      // Skill tree upgrade shop
+      SCORES_MENU,     // Recent match history display
+      PLAYING,         // Active gameplay
+      PAUSED,          // Pause overlay with Resume/Retry/Home/Quit
+      GAME_OVER_STATE, // "YOU DIED" screen
+      ESCAPED_STATE    // "YOU ESCAPED!" victory screen
+  };
+
+3.2  STATE TRANSITION DIAGRAM
+─────────────────────────────
+  ┌─────────────┐
+  │  MAIN_MENU  │◄──────────────────────────────────────────┐
+  │             │──→ LEVEL_SELECT ──→ (select level) ──→ PLAYING
+  │             │──→ STORE_MENU  ──→ Back ──→ MAIN_MENU    │
+  │             │──→ SCORES_MENU ──→ Back ──→ MAIN_MENU    │
+  │             │──→ Quit (close window)                    │
+  └─────────────┘                                           │
+                                                            │
+  ┌──────────┐      ESC key toggles       ┌────────┐       │
+  │ PLAYING  │◄──────────────────────────→│ PAUSED │       │
+  │          │                             │        │──→ Home ──→ MAIN_MENU
+  │          │──→ health <= 0 ──→ GAME_OVER│        │──→ Retry ──→ PLAYING
+  │          │──→ enter door  ──→ ESCAPED  │        │──→ Quit (close)
+  └──────────┘                             └────────┘
+       │                                        │
+       ▼                                        │
+  ┌──────────────┐       ┌──────────────┐       │
+  │ GAME_OVER    │       │   ESCAPED    │       │
+  │              │──→ Retry ──→ PLAYING │──→ Home ──→ MAIN_MENU
+  │              │──→ Home ──→ MAIN_MENU│──→ Quit (close)
+  │              │──→ Quit (close)      │       │
+  └──────────────┘       └──────────────┘       │
+                                                 │
+  All "Home" transitions stop music ─────────────┘
+
+3.3  STATE VARIABLES (Lines 361–368)
+────────────────────────────────────
+  GameState gameState = MAIN_MENU   → Initial state
+  int currentLevel = 0              → 1=Easy, 2=Medium, 3=Hard, 4=Hell
+  float spawnTimer = 0.0f           → Timer for enemy spawn interval
+  float spawnInterval = 3.0f        → Seconds between spawns (2.0 for Easy)
+  int coins = 0                     → Current match coins
+  int enemiesKilled = 0             → Current match kill count
+
+================================================================================
+4. UI BUTTON SYSTEM — main.cpp, Lines 248–278
+================================================================================
+
+  void drawButton(RenderWindow& window, const Font& font,
+                  const string& label, float x, float y, float w, float h,
+                  const Vector2f& mousePos, bool isRedTheme = false)
+
+  THEMED DUNGEON-STYLE BUTTON:
+    Normal state:
+      Fill:    Dark brown (45,40,35,220) or dark red (80,25,25,220)
+      Border:  Gold (160,130,40) or red (200,60,60)
+      Text:    Dim gold (210,180,60)
+
+    Hover state:
+      Fill:    Lighter brown (80,70,55,235) or lighter red (130,40,40,235)
+      Border:  Bright gold (255,215,0) or bright red (255,120,120)
+      Text:    Bright gold (255,225,80)
+
+  Parameters: BTN_W=240, BTN_H=55, BTN_X = centered horizontally
+
+  HOVER DETECTION (Line 255):
+    bool hovered = btn.getGlobalBounds().contains(mousePos)
+    Uses screen-space mouse coordinates for accurate hit-testing.
+
+================================================================================
+5. INITIALIZATION — main.cpp, Lines 280–380
+================================================================================
+
+5.1  WINDOW SETUP (Lines 282–283)
+─────────────────────────────────
+  sf::RenderWindow window(VideoMode(1280, 720), "SFML RPG with DSA QuadTree")
+  window.setFramerateLimit(60) → Locked to 60 FPS
+
+5.2  RANDOM SEED (Line 285)
+───────────────────────────
+  std::srand(static_cast<unsigned int>(std::time(nullptr)))
+  Seeds random number generator for enemy spawning.
+
+5.3  MAP INIT (Lines 288–292)
+─────────────────────────────
+  Map gameMap; gameMap.load("assets/map.jpg")
+
+5.4  CAMERA VIEW (Lines 294–296)
+────────────────────────────────
+  sf::View view(FloatRect(0, 0, 1280, 720))
+  view.setCenter(gameMap.getSpawnPoint())
+  View follows player position each frame.
+
+5.5  PLAYER INIT (Lines 298–301)
+────────────────────────────────
+  Player player; player.loadTextures();
+  player.setPosition(spawnPoint.x, spawnPoint.y)
+
+5.6  ENTITY VECTORS (Lines 303–307)
+───────────────────────────────────
+  vector<Enemy*> enemies     → Dynamic enemy pool
+  vector<Bullet*> bullets    → Dynamic bullet pool
+
+5.7  FONT & SCORE TEXT (Lines 309–318)
+──────────────────────────────────────
+  sf::Font font; font.loadFromFile("assets/arial.ttf")
+  sf::Text scoreText → White, size 24, top-left corner
+
+5.8  COIN ICON (Lines 319–324)
+──────────────────────────────
+  sf::Texture coinTex; coinTex.loadFromFile("assets/objects/coin.png")
+  coinSpr scaled to 30×30px, displayed in top-right HUD area.
+
+5.9  HISTORY LOADING (Lines 370–377)
+────────────────────────────────────
+  loadGameRecords(matchHistory, totalLifetimeCoins, absoluteHighScore)
+  initSkillTree()
+  loadProfile(totalLifetimeCoins)
+
+================================================================================
+6. AUDIO SYSTEM — main.cpp, Lines 326–352
+================================================================================
+
+6.1  BACKGROUND MUSIC (Lines 327–334)
+─────────────────────────────────────
+  sf::Music bgMusic
+  File: "assets/sound/music.wav"
+  Settings: loop = true, volume = 25%
+  Plays during PLAYING state, stopped on death/victory/home.
+
+6.2  SLASH SOUND EFFECT (Lines 336–343)
+───────────────────────────────────────
+  sf::SoundBuffer slashBuffer + sf::Sound slashSound
+  File: "assets/sound/slash.wav"
+  Volume: 70%
+  Plays on every successful melee attack (Line 492).
+
+6.3  GAME OVER MUSIC (Lines 345–352)
+────────────────────────────────────
+  sf::Music gameOverMusic
+  File: "assets/sound/game_over.wav"
+  Settings: loop = false, volume = 25%
+  Plays once on death (Lines 1031–1034), guarded by hasPlayedGameOver flag.
+
+  AUDIO STATE MANAGEMENT:
+    PLAYING → bgMusic.play()
+    Death   → bgMusic.stop(), gameOverMusic.play() (once)
+    Victory → bgMusic.stop()
+    Retry   → bgMusic.play(), gameOverMusic.stop()
+    Home    → bgMusic.stop() or gameOverMusic.stop()
+
+================================================================================
+7. RESET GAME LAMBDA — main.cpp, Lines 387–413
+================================================================================
+
+  auto resetGame = [&]() {
+      // 1. Cleanup all dynamic entities
+      for (auto enemy : enemies) delete enemy; enemies.clear();
+      for (auto bullet : bullets) delete bullet; bullets.clear();
+
+      // 2. Reset player state and apply tree upgrades
+      player.reset(spawnPoint.x, spawnPoint.y);
+      applyPlayerStatsFromTree(player);
+
+      // 3. Reset map (levers, key, door, chest)
+      gameMap.reset();
+
+      // 4. Reset match stats
+      score = 0; coins = 0; enemiesKilled = 0;
+      spawnTimer = 0.0f;
+      spawnInterval = (currentLevel == 1) ? 2.0f : 3.0f;
+      hasPlayedGameOver = false;
+
+      // 5. Spawn initial enemies
+      for (int i = 0; i < INITIAL_ENEMY_COUNT; i++)
+          spawnEnemy(enemies, gameMap, player.getPosition(), currentLevel);
+
+      // 6. Restart audio
+      bgMusic.play(); gameOverMusic.stop();
+
+      // 7. Set state to PLAYING
+      gameState = PLAYING;
+  };
+
+  Used by: Level Select buttons, Retry buttons on Pause/GameOver screens.
+
+================================================================================
+8. GAME LOOP — main.cpp, Lines 416–1253
+================================================================================
+
+8.1  DELTA TIME (Line 418)
+──────────────────────────
+  float dt = dtClock.restart().asSeconds()
+  Frame-independent timing for all movement and animation.
+
+8.2  MOUSE TRACKING (Lines 420–422)
+───────────────────────────────────
+  sf::Vector2i mousePixel = Mouse::getPosition(window)
+  sf::Vector2f mouseScreen(float(mousePixel.x), float(mousePixel.y))
+  Screen-space mouse used for button hover detection.
+
+8.3  EVENT POLLING (Lines 424–508)
+──────────────────────────────────
+  WINDOW CLOSE (Line 427–428): window.close()
+
+  ESCAPE KEY (Lines 431–434):
+    PLAYING → PAUSED toggle
+    PAUSED → PLAYING toggle
+
+  MOUSE CLICK ROUTING (Lines 437–486):
+    Each game state has its own button hit-test region:
+
+    MAIN_MENU (Lines 441–447):
+      y ∈ [280,335] → LEVEL_SELECT (Play)
+      y ∈ [350,405] → STORE_MENU (Store)
+      y ∈ [420,475] → SCORES_MENU (Scores)
+      y ∈ [490,545] → window.close() (Quit)
+
+    STORE_MENU (Lines 448–458):
+      y ∈ [620,665] → MAIN_MENU (Back)
+      x ∈ [300,500], y ∈ [350,400] → Buy speed upgrade
+      x ∈ [780,980], y ∈ [350,400] → Buy power upgrade
+
+    SCORES_MENU (Lines 459–461):
+      y ∈ [530,575] → MAIN_MENU (Back)
+
+    LEVEL_SELECT (Lines 462–470):
+      y ∈ [230,285] → Level 1 (Easy)
+      y ∈ [300,355] → Level 2 (Medium)
+      y ∈ [370,425] → Level 3 (Hard)
+      y ∈ [440,495] → Level 4 (Hell)
+      y ∈ [530,575] → MAIN_MENU (Back)
+
+    PAUSED (Lines 471–476):
+      Resume, Retry, Home, Quit buttons
+
+    GAME_OVER (Lines 477–481):
+      Retry, Home, Quit buttons
+
+    ESCAPED (Lines 482–485):
+      Home, Quit buttons
+
+  SPACEBAR — MELEE ATTACK (Lines 488–508):
+    Handled by Person 1 (player attack + hit detection)
+
+================================================================================
+9. MENU SCREENS — main.cpp
+================================================================================
+
+9.1  MAIN MENU (Lines 511–580)
+──────────────────────────────
+  VISUAL DESIGN:
+  - Background: Solid dark (10,8,6) with overlay (15,12,8, alpha 240)
+  - Title: "DUNGEON ESCAPE" — 64pt, gold (220,190,60), bold
+  - Subtitle: "Survive the dungeon. Slay or be slain." — 16pt, muted (140,120,80)
+  - Decorative line: 350px wide, gold tint (180,150,50, alpha 160)
+  - Stats bar: "Total Coins: X | High Score: Y" — 18pt, gold
+  - 4 buttons: Play, Store, Scores, Quit
+  - Footer: "DS II Course Project | SFML + QuadTree" — 12pt, dim
+
+9.2  STORE MENU (Lines 582–660)
+───────────────────────────────
+  Handled by Person 1 primarily (Skill Tree), but screen layout:
+  - Title: "UPGRADE STORE" — 52pt, gold
+  - Available Coins display — 28pt, bright gold (255,215,0)
+  - Speed branch: current tier + buy button (left side, x=400)
+  - Power branch: current tier + buy button (right side, x=880)
+  - Shows "Speed MAX" / "Power MAX" when fully upgraded
+  - Back button at bottom
+
+9.3  SCORES MENU (Lines 662–724)
+────────────────────────────────
+  - Title: "RECENT MATCHES" — 52pt, gold
+  - Decorative line separator
+  - Renders up to 10 most recent games (reverse chronological):
+    Format: "LevelName (Status) - Score: X - Kills: Y - Coins: Z"
+    Win → Green text (100,255,100)
+    Lose → Red text (255,100,100)
+  - Empty state: "No recent matches found." — 20pt, muted
+  - Back button
+
+9.4  LEVEL SELECT (Lines 726–776)
+─────────────────────────────────
+  - Title: "SELECT LEVEL" — 52pt, gold
+  - Subtitle: "Choose your challenge" — 16pt, muted
+  - 4 RED-THEMED level buttons:
+      "Easy (Skeleton Horde)"
+      "Medium (Dark Warriors)"
+      "Hard (Elite Beasts)"
+      "Hell (Infinite Slash)"
+  - Back button
+
+9.5  VICTORY SCREEN (Lines 778–834)
+───────────────────────────────────
+  - Background: Very dark (10,10,15)
+  - Overlay: Subtle dark-green (5,20,5, alpha 180)
+  - Title: "YOU ESCAPED!" — 56pt, gold, bold
+  - Subtitle: "You made it out of the dungeon alive!" — 18pt, sage green
+  - Decorative line — gold
+  - Final Score — 28pt, light gray (200,200,200)
+  - Buttons: Home, Quit
+
+9.6  GAME OVER SCREEN (Lines 836–893)
+─────────────────────────────────────
+  - Background: Dark red (20,5,5)
+  - Overlay: Deep red (40,0,0, alpha 180)
+  - Title: "YOU DIED" — 64pt, crimson (200,30,30), bold
+  - Subtitle: "The dungeon claims another soul..." — 18pt, muted red
+  - Decorative line — dark red (150,30,30, alpha 180)
+  - Score — 24pt, faded (180,150,150)
+  - Buttons: Retry, Home, Quit
+
+9.7  PAUSE OVERLAY (Lines 1213–1243)
+────────────────────────────────────
+  Rendered ON TOP of the frozen game world:
+  - Semi-transparent black overlay (0,0,0, alpha 170)
+  - Title: "PAUSED" — 52pt, gold, bold
+  - Decorative line: 250px, gold tint
+  - Buttons: Resume, Retry, Home, Quit
+
+================================================================================
+10. HUD (HEADS-UP DISPLAY) — main.cpp, Lines 1149–1211
+================================================================================
+
+  Switches to window.getDefaultView() for screen-space HUD rendering.
+
+10.1  SCORE DISPLAY (Lines 1153–1156)
+─────────────────────────────────────
+  Position: Top-left (10, 10)
+  Text: "Score: X" — 24pt, white
+
+10.2  COIN DISPLAY (Lines 1158–1167)
+────────────────────────────────────
+  Coin icon: Top-right (WINDOW_WIDTH - 150, 10), 30×30px gold coin sprite
+  Coin text: (WINDOW_WIDTH - 110, 8) — 24pt, gold (255,215,0)
+
+10.3  HEALTH BAR — 10 SEGMENTS (Lines 1169–1189)
+─────────────────────────────────────────────────
+  Position: Bottom-center (centered, WINDOW_HEIGHT - 50)
+  Each segment: 28px wide × 15px tall, 2px visual gap
+  Background: Dark gray (40,40,40, alpha 200) with black border
+  Fill: Crimson red (220,20,60)
+  Fill calculation: partial fill for fractional HP
+    fillAmt = min(health - (i * 10), 10)
+    fillWidth = (fillAmt / 10) × 28px
+
+  Visual: 10 chunks mapping to 100 HP total (10 HP per chunk)
+
+10.4  STAMINA BAR — 5 SEGMENTS (Lines 1191–1211)
+─────────────────────────────────────────────────
+  Position: Bottom-center (below health bar, WINDOW_HEIGHT - 30)
+  Each segment: 28px wide × 10px tall
+  Background: Same dark gray with black border
+  Fill: Dodger Blue (30,144,255)
+  Fill calculation: same partial-fill formula
+
+  Visual: 5 chunks mapping to 50 SP total (10 SP per chunk)
+
+================================================================================
+11. CAMERA SYSTEM — main.cpp
+================================================================================
+
+  VIEW SETUP (Lines 294–296):
+    sf::View view(FloatRect(0, 0, 1280, 720))
+    Initial center = spawn point
+
+  CAMERA FOLLOW (Lines 916–918, 1040–1041):
+    view.setCenter(player.getPosition())
+    window.setView(view)
+
+    Applied twice:
+    1. During PLAYING update (Line 917) — follows player movement
+    2. After update loop (Line 1040) — ensures camera is correct for PAUSED state
+
+  VIEW SWITCHING FOR HUD (Line 1151):
+    window.setView(window.getDefaultView())
+    Switches to screen-space for HUD rendering so UI elements don't scroll.
+
+  VIEW SWITCHING FOR MENUS (Line 514, 585, 665, 729, 781, 839):
+    window.setView(window.getDefaultView())
+    All menu screens use default view (no camera offset).
+
+================================================================================
+12. GAME WORLD RENDERING — main.cpp, Lines 1043–1057
+================================================================================
+
+  DRAW ORDER (back to front):
+  1. window.clear()                          // Clear framebuffer
+  2. gameMap.draw(window)                     // Map background + props
+  3. for enemies → enemy->draw(window)        // All enemies
+  4. player.draw(window)                      // Player on top of enemies
+  5. for bullets → bullet->draw(window)       // Bullets on top of everything
+
+  Note: No Y-sorting implemented (comment on Line 1047 indicates it's optional).
+
+================================================================================
+13. GAME OVER / VICTORY TRANSITIONS — main.cpp
+================================================================================
+
+13.1  DEATH TRANSITION (Lines 1021–1035)
+────────────────────────────────────────
+  if (player.getHealth() <= 0):
+    1. Save game record (once, guarded by state check)
+       Level name: "Easy"/"Medium"/"Hard"/"Hell"
+       Status: "Lose"
+    2. Add earned coins to availableCoins + saveProfile()
+    3. Set gameState = GAME_OVER_STATE
+    4. Stop bgMusic
+    5. Play gameOverMusic (once, guarded by hasPlayedGameOver flag)
+
+13.2  VICTORY TRANSITION (Lines 991–1003)
+─────────────────────────────────────────
+  if (doorOpen AND player in doorAreaBounds):
+    1. Save game record (once)
+       Status: "Win"
+    2. Add earned coins to availableCoins + saveProfile()
+    3. Set gameState = ESCAPED_STATE
+    4. Stop bgMusic
+
+================================================================================
+14. CLEANUP — main.cpp, Lines 1248–1253
+================================================================================
+
+  for (auto enemy : enemies) delete enemy;
+  for (auto bullet : bullets) delete bullet;
+  return 0;
+
+  Properly frees all heap-allocated Enemy and Bullet objects before exit.
+  (SkillTree cleanup happens via root destructor, implicitly at program end.)
+
+================================================================================
+15. SUMMARY OF CONTRIBUTIONS
+================================================================================
+
+  ┌─────────────────────────────────────────────────────────────────┐
+  │  COMPONENT                    │ FILE           │ LINES         │
+  ├─────────────────────────────────────────────────────────────────┤
+  │  Includes & constants         │ main.cpp       │ 1–20          │
+  │  GameRecord struct             │ main.cpp       │ 22–29         │
+  │  loadGameRecords()            │ main.cpp       │ 31–61         │
+  │  saveGameRecord()             │ main.cpp       │ 63–73         │
+  │  drawButton() UI helper       │ main.cpp       │ 248–278       │
+  │  main() initialization        │ main.cpp       │ 280–380       │
+  │  Audio system setup           │ main.cpp       │ 326–352       │
+  │  GameState enum                │ main.cpp       │ 360           │
+  │  State variables              │ main.cpp       │ 361–368       │
+  │  Match history loading        │ main.cpp       │ 370–377       │
+  │  resetGame() lambda           │ main.cpp       │ 387–413       │
+  │  Game loop + event polling    │ main.cpp       │ 416–509       │
+  │  Main Menu screen             │ main.cpp       │ 511–580       │
+  │  Store Menu screen layout     │ main.cpp       │ 582–660       │
+  │  Scores Menu screen           │ main.cpp       │ 662–724       │
+  │  Level Select screen          │ main.cpp       │ 726–776       │
+  │  Victory screen               │ main.cpp       │ 778–834       │
+  │  Game Over screen             │ main.cpp       │ 836–893       │
+  │  Camera system                │ main.cpp       │ 916–918,      │
+  │                               │                │ 1039–1041     │
+  │  Game world rendering         │ main.cpp       │ 1043–1057     │
+  │  HUD: Score display           │ main.cpp       │ 1149–1156     │
+  │  HUD: Coin display            │ main.cpp       │ 1158–1167     │
+  │  HUD: Health bar (10 seg)     │ main.cpp       │ 1169–1189     │
+  │  HUD: Stamina bar (5 seg)     │ main.cpp       │ 1191–1211     │
+  │  Pause overlay                │ main.cpp       │ 1213–1243     │
+  │  Death/Victory transitions    │ main.cpp       │ 991–1003,     │
+  │                               │                │ 1021–1035     │
+  │  Program cleanup              │ main.cpp       │ 1248–1253     │
+  └─────────────────────────────────────────────────────────────────┘
+
+  DATA STRUCTURES USED:
+  • std::vector<GameRecord> — match history with CSV persistence
+  • enum GameState — 8-state game state machine
+  • sf::View — 2D camera for world/screen space separation
+  • Lambda capture [&] — resetGame closure capturing all game state
+
+  KEY ALGORITHMS:
+  • CSV parsing with stringstream for save data
+  • State machine with button-based transitions
+  • Segmented health/stamina bar rendering with partial fill
+  • Frame-independent timing via deltaTime
+  • Screen-space ↔ world-space view switching for HUD
+
+  ADDITIONAL RESPONSIBILITIES (not covered by persons 1–4):
+  • Window creation and framerate management
+  • Random seed initialization
+  • All audio loading, playback, and state-aware transitions
+  • All menu screen visual design and layout
+  • Game record persistence (save_data.txt read/write)
+  • HUD rendering (health bar, stamina bar, score, coins)
+  • Camera follow system
+  • Global game reset orchestration
+  • Memory cleanup on exit
+
+================================================================================

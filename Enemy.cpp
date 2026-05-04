@@ -12,7 +12,7 @@ Enemy::Enemy() {
     animationTime = 0.0f;
     animationSpeed = 0.2f;
 
-    hp = 1;
+    hp = 10;
     type = 0;
     knockbackVelocity = sf::Vector2f(0.f, 0.f);
     baseColumns = 1;
@@ -60,7 +60,8 @@ bool Enemy::load(const std::string& texturePath, int cols, int rws) {
 
 bool Enemy::loadAdvancedEnemy(int t) {
     type = t;
-    hp = t + 1;
+    hp = (t + 1) * 10;
+    if (t >= 2) speed = 130.0f; // Increase speed slightly for types 2 and 3
     
     std::string prefix = "enemy2";
     if (t == 2) prefix = "enemy3";

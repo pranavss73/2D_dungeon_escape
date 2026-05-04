@@ -1,0 +1,488 @@
+================================================================================
+            PERSON 4 — MAP DESIGN, OBSTACLES & INTERACTIVE OBJECTS
+================================================================================
+
+RESPONSIBLE FILES:
+  • Map.h              (96 lines)   — Map class declaration
+  • Map.cpp            (365 lines)  — Full map implementation
+  • main.cpp (partial)              — Lever/door/key/chest interaction handlers
+
+TOTAL LINES OF CODE OWNED: ~560 lines (Map: 461, main.cpp interaction: ~99)
+
+================================================================================
+1. MAP CLASS OVERVIEW — Map.h
+================================================================================
+
+1.1  PUBLIC INTERFACE (Lines 8–47)
+──────────────────────────────────
+  CORE:
+    Map()                           → Constructor (default spawn, door, flags)
+    ~Map()                          → Destructor
+    bool load(const string& path)   → Loads map texture + all obstacles + objects
+    void draw(RenderWindow& window) → Renders map, props, levers, blocks, key
+    void reset()                    → Resets all interactive objects for retry
+
+  GETTERS:
+    Vector2f getSpawnPoint() const          → Player start position (400, 300)
+    FloatRect getEscapeDoorBounds() const   → Escape door region
+    FloatRect getBounds() const             → Full map sprite bounds
+    const vector<FloatRect>& getObstacles() const → All collision rectangles
+    const vector<Sprite>& getProps() const  → All prop sprites (spikes, chest)
+
+  LEVER 1 (Right side):
+    bool isLeverPulled() const
+    void triggerLever()             → Flip lever, remove invisible blockade
+    FloatRect getLeverBounds() const
+
+  LEVER 2 (Left side):
+    bool isLever2Pulled() const
+    void triggerLever2()
+    FloatRect getLever2Bounds() const
+
+  KEY:
+    bool isKeyCollected() const
+    FloatRect getKeyBounds() const
+    void collectKey()
+
+  DOOR:
+    void openDoor()                 → Swap to map2 texture, remove door obstacle
+    bool isDoorOpen() const
+    FloatRect getDoorAreaBounds() const  → Win zone (1871,752,124,96)
+
+  CHEST:
+    bool isChestOpened() const
+    void openChest()
+    FloatRect getChestBounds() const
+
+1.2  PRIVATE DATA MEMBERS (Lines 49–93)
+───────────────────────────────────────
+  MAP:
+    sf::Texture mapTexture          → Primary map background image
+    sf::Sprite mapSprite            → Rendered map sprite
+    Vector2f spawnPoint = (400, 300) → Player start coordinates
+    FloatRect escapeDoorBounds = (2700, 1400, 100, 100) → Legacy escape zone
+    vector<FloatRect> obstacles     → ALL collision rectangles (walls + barriers)
+
+  PROPS:
+    sf::Texture spikeTexture        → Spike trap texture
+    sf::Texture chestTexture        → Treasure chest texture
+    vector<Sprite> props            → Rendered prop sprites [0]=spike1, [1]=spike2, [2]=chest
+
+  LEVER 1:
+    bool leverPulled                → State flag
+    sf::Texture leverTexture        → Lever handle texture
+    sf::Texture blockTexture        → Vertical block texture
+    sf::Sprite leverSprite          → Rendered lever
+    sf::Sprite blockSprite          → Rendered block (visual gate)
+    FloatRect invisibleBlockRect    → The actual collision barrier (1372, 590, 867, 565)
+
+  LEVER 2:
+    bool lever2Pulled               → State flag
+    sf::Texture lever2Texture       → Lever handle texture
+    sf::Texture block2Texture       → Vertical block texture
+    sf::Texture blockHzTexture      → Horizontal block texture
+    sf::Sprite lever2Sprite         → Rendered lever
+    sf::Sprite block2Sprite         → Vertical block sprite
+    sf::Sprite blockHzSprite        → Horizontal block sprite
+    FloatRect invisibleBlock2Rect   → Collision barrier (162, 535, 819, 592)
+
+  KEY:
+    bool keyCollected               → Pickup state
+    sf::Texture keyTexture          → Key sprite texture
+    sf::Sprite keySprite            → Rendered key
+    FloatRect keyRect = (391, 996, 24, 11) → Key pickup zone
+
+  DOOR:
+    bool doorOpen                   → Door state
+    sf::Texture map2Texture         → Alternate map with open door
+    FloatRect doorObstacleRect = (1871, 752, 124, 96) → Blocked passage
+    FloatRect doorAreaBounds = (1871, 752, 124, 96)   → Win zone trigger
+
+  CHEST:
+    bool chestOpened                → Chest state
+
+================================================================================
+2. MAP LOADING — Map.cpp, Lines 19–152 (load)
+================================================================================
+
+2.1  MAP TEXTURE (Lines 20–24)
+──────────────────────────────
+  Loads "assets/map.jpg" as the full dungeon background image.
+  Sets mapSprite texture to the loaded image.
+
+2.2  OBSTACLE RECTANGLES — WALL LAYOUT (Lines 26–43)
+─────────────────────────────────────────────────────
+  16 hardcoded sf::FloatRect obstacles defining the dungeon walls:
+
+  BOUNDARY WALLS (Lines 28–31):
+    obstacles[0]  = (0, 0, 2239, 215)          → TOP boundary
+    obstacles[1]  = (0, 0, 187, 1220)           → LEFT boundary
+    obstacles[2]  = (2127, 0, 120, 1220)        → RIGHT boundary
+    obstacles[3]  = (0, 1079, 2239, 138)         → BOTTOM boundary
+
+  INTERIOR WALLS (Lines 32–43):
+    obstacles[4]  = (0, 529, 366, 229)           → Left alcove wall
+    obstacles[5]  = (465, 535, 671, 235)          → Center-left upper wall
+    obstacles[6]  = (616, 613, 365, 255)          → Center cross-wall
+    obstacles[7]  = (647, 387, 337, 209)          → Upper center block
+    obstacles[8]  = (1214, 535, 287, 224)          → Inner right wall
+    obstacles[9]  = (1371, 388, 253, 268)          → Upper-right block
+    obstacles[10] = (1369, 590, 373, 284)          → Right corridor wall
+    obstacles[11] = (1580, 457, 620, 382)          → Far right large block
+    obstacles[12] = (647, 56, 336, 273)            → Top-center pillar
+    obstacles[13] = (1372, 56, 257, 273)           → Top-right pillar
+    obstacles[14] = (613, 924, 368, 228)           → Bottom-center block
+    obstacles[15] = (1370, 923, 372, 223)          → Bottom-right block
+
+  These rectangles form the dungeon corridor layout:
+
+  ┌────────────────────────────────────────────────────────────────────┐
+  │ ████████████████████  TOP BOUNDARY  ████████████████████████████  │
+  │ █                 ████            ████                         █  │
+  │ █                 █pil1█          █pil2█                       █  │
+  │ █                 ████            ████                         █  │
+  │ █      ████████  ████████         ████████   ██████████████   █  │
+  │ █      █wall  █  █center█         █inner █   █  far right █   █  │
+  │ █alcove█      █  █ cross █         █right █   █   block    █   █  │
+  │ █ wall █      █  █       █         █      █   █            █   █  │
+  │ █      ████████  █████████         ████████   ██████████████   █  │
+  │ █                                   [LEVER1]        [DOOR]     █  │
+  │ █      █████████                 █████████                     █  │
+  │ █      █ btm-c █                 █ btm-r █        [LEVER2]    █  │
+  │ █  KEY ████████                  █████████                     █  │
+  │ ████████████████████  BOTTOM BOUNDARY  ████████████████████████  │
+  └────────────────────────────────────────────────────────────────────┘
+
+2.3  PROPS — SPIKES & CHEST (Lines 45–67)
+─────────────────────────────────────────
+  Loads two textures:
+    "assets/objects/spikes.png"  → Spike trap
+    "assets/objects/chest.png"   → Treasure chest
+
+  SPIKE 1 (Lines 51–54):
+    Position: (1847, 226), Scale: 50×70 pixels
+    → Located near the door/lever area, acts as a hazard
+
+  SPIKE 2 (Lines 57–60):
+    Position: (1847, 310), Scale: 50×70 pixels
+    → Located below spike 1, creating a spike corridor
+
+  CHEST (Lines 63–66):
+    Position: (1920, 243), Scale: 65×65 pixels
+    → Located behind the spikes, rewards 300 coins on pickup
+
+  Props stored in vector: props[0]=spike1, props[1]=spike2, props[2]=chest
+
+2.4  LEVER 1 & BLOCK — RIGHT SIDE (Lines 69–86)
+────────────────────────────────────────────────
+  LEVER SPRITE (Lines 71–76):
+    Texture: "assets/objects/lever.png"
+    Position: (1758.5, 307) centered
+    Scale: 25×106 pixels
+    Origin: center of texture (for rotation)
+
+  BLOCK SPRITE (Lines 78–82):
+    Texture: "assets/objects/block.png"
+    Position: (1370, 832)
+    Scale: 24×90 pixels (vertical barricade)
+
+  INVISIBLE BLOCKADE (Lines 84–86):
+    invisibleBlockRect = FloatRect(1372, 590, 867, 565)
+    Added to obstacles[] vector — blocks the entire right-lower quadrant
+    Removed when lever is pulled → opens right passage
+
+2.5  LEVER 2 & BLOCKS — LEFT SIDE (Lines 88–111)
+─────────────────────────────────────────────────
+  LEVER 2 SPRITE (Lines 90–95):
+    Texture: "assets/objects/lever.png" (reuses same asset)
+    Position: (2088.5, 993) centered
+    Scale: 25×106 pixels
+
+  BLOCK 2 SPRITE — VERTICAL (Lines 97–101):
+    Position: (957, 831)
+    Scale: 24×90 pixels
+
+  BLOCK Hz SPRITE — HORIZONTAL (Lines 103–107):
+    Texture: "assets/objects/block_hz.png"
+    Position: (379, 535)
+    Scale: 84×18 pixels (horizontal barricade)
+
+  INVISIBLE BLOCKADE 2 (Lines 109–111):
+    invisibleBlock2Rect = FloatRect(162, 535, 819, 592)
+    Blocks the entire left-lower quadrant
+    Removed when lever 2 is pulled → opens left passage
+
+2.6  DOOR OBSTACLE (Lines 132–133)
+──────────────────────────────────
+  doorObstacleRect = FloatRect(1871, 752, 124, 96)
+  Added to obstacles[] — blocks the exit passage until key is used.
+  Removed when door is opened → creates the win zone.
+
+2.7  KEY SPRITE (Lines 135–143)
+───────────────────────────────
+  Texture: "assets/objects/key.png"
+  Position: (391, 996) — hidden in the left lower corner
+  Scale: 24×11 pixels (very small, require exploration to find)
+
+2.8  MAP2 PRELOAD (Lines 145–147)
+─────────────────────────────────
+  Texture: "assets/map2.jpg" — alternate map image with open door visual
+  Pre-loaded at startup to avoid mid-game loading stutter.
+
+================================================================================
+3. MAP RENDERING — Map.cpp, Lines 154–205 (draw)
+================================================================================
+
+  DRAW ORDER (back to front):
+  1. Map background sprite (Line 155)
+  2. Props — spikes and chest (Lines 157–174):
+     - Skip chest if chestOpened == true
+     - If chest visible: draw shadow ellipse beneath it first
+       Shadow: CircleShape radius=45% width, squash (1.0, 0.4), opacity 140
+     - Draw prop sprite
+  3. Lever 1 sprite (Line 176)
+  4. Block 1 sprite — only if !leverPulled (Lines 177–179)
+  5. Lever 2 sprite (Line 181)
+  6. Block 2 + Block Hz sprites — only if !lever2Pulled (Lines 182–185)
+  7. Key sprite — only if !keyCollected (Lines 188–190)
+  8. DEBUG: All obstacles drawn as transparent red rectangles (Lines 199–204)
+     (alpha = 0 → invisible in release, change to see collision boxes)
+
+================================================================================
+4. LEVER MECHANICS — Map.cpp, Lines 227–277
+================================================================================
+
+4.1  LEVER 1 — triggerLever() (Lines 231–247)
+──────────────────────────────────────────────
+  Guard: if already pulled → return
+
+  STEP 1: Set leverPulled = true
+  STEP 2: Visual flip — invert Y scale to flip lever sprite upside-down:
+    leverSprite.setScale(scaleX, -abs(scaleY))
+    This creates a "pulled down" visual effect.
+
+  STEP 3: Remove invisible blockade from obstacles vector:
+    Iterates obstacles[], finds the one matching invisibleBlockRect position
+    Uses left/top coordinate matching for identification
+    Erases it from the vector → player/enemies can now pass through
+
+  EFFECT: Opens the entire right-lower quadrant of the dungeon.
+
+4.2  LEVER 2 — triggerLever2() (Lines 257–273)
+───────────────────────────────────────────────
+  Identical logic to Lever 1:
+  1. Set lever2Pulled = true
+  2. Flip lever 2 sprite vertically
+  3. Remove invisibleBlock2Rect from obstacles vector
+
+  EFFECT: Opens the entire left-lower quadrant of the dungeon.
+
+4.3  LEVER BOUNDS GETTERS (Lines 249–251, 275–277)
+──────────────────────────────────────────────────
+  getLeverBounds()  → leverSprite.getGlobalBounds()
+  getLever2Bounds() → lever2Sprite.getGlobalBounds()
+  Used by main.cpp for proximity detection (distance < 40px).
+
+================================================================================
+5. KEY SYSTEM — Map.cpp, Lines 279–290
+================================================================================
+
+  isKeyCollected() (Line 280–282)  → Returns keyCollected flag
+  getKeyBounds() (Lines 284–286)   → Returns keySprite.getGlobalBounds()
+  collectKey() (Lines 288–290)     → Sets keyCollected = true
+
+  The key is located at (391, 996) in the bottom-left corner.
+  When collected:
+    - Key sprite stops rendering (draw checks keyCollected)
+    - Door interaction prompt changes from "Find Key" to "Press E to Escape"
+
+================================================================================
+6. DOOR SYSTEM — Map.cpp, Lines 292–317
+================================================================================
+
+6.1  openDoor() (Lines 293–309)
+───────────────────────────────
+  Guard: if doorOpen → return
+
+  STEP 1: Set doorOpen = true
+  STEP 2: SWAP MAP TEXTURE:
+    mapSprite.setTexture(map2Texture)
+    This replaces the entire background with the open-door version.
+    The visual change shows the exit passage as open.
+
+  STEP 3: Remove doorObstacleRect from obstacles vector:
+    Same iterator-erase pattern as lever trigger.
+    Now player can walk through the previously-blocked exit.
+
+6.2  isDoorOpen() (Line 311–313) → Returns doorOpen flag
+6.3  getDoorAreaBounds() (Lines 315–317) → Returns doorAreaBounds (1871,752,124,96)
+
+  This bounds region is the WIN ZONE. When player enters it after door is opened,
+  the game transitions to ESCAPED_STATE (victory).
+
+================================================================================
+7. CHEST SYSTEM — Map.cpp, Lines 319–335
+================================================================================
+
+  isChestOpened() (Line 320–322) → Returns chestOpened flag
+  openChest() (Lines 324–326) → Sets chestOpened = true
+
+  getChestBounds() (Lines 328–335):
+    If props has at least 3 entries:
+      Returns props[2] bounds EXPANDED by 20px on all sides
+      (makes it easier to trigger chest pickup — 40px margin total)
+    Fallback: Returns (1920, 235, 76, 66)
+
+  When chest is opened:
+    - chestOpened flag prevents re-collection
+    - draw() skips rendering chest (Line 160)
+    - main.cpp awards 300 coins (Line 988)
+
+================================================================================
+8. MAP RESET — Map.cpp, Lines 337–364
+================================================================================
+
+  Called by resetGame() lambda when player retries or starts a new game.
+
+  LEVER 1 RESET (Lines 339–343):
+    if leverPulled:
+      - Set leverPulled = false
+      - Restore lever sprite scale to original (right-side up)
+      - Re-add invisibleBlockRect to obstacles vector
+
+  LEVER 2 RESET (Lines 346–350):
+    if lever2Pulled:
+      - Set lever2Pulled = false
+      - Restore lever 2 sprite scale
+      - Re-add invisibleBlock2Rect to obstacles vector
+
+  KEY RESET (Line 353):
+    keyCollected = false → key reappears on map
+
+  DOOR RESET (Lines 356–360):
+    if doorOpen:
+      - Set doorOpen = false
+      - Swap texture back to original mapTexture
+      - Re-add doorObstacleRect to obstacles vector
+
+  CHEST RESET (Line 363):
+    chestOpened = false → chest reappears on map
+
+================================================================================
+9. INTERACTION HANDLING IN MAIN LOOP — main.cpp
+================================================================================
+
+9.1  LEVER 1 INTERACTION (Lines 1058–1085)
+──────────────────────────────────────────
+  Calculate distance from player to lever center:
+    leverCenter = (leverBounds.left + width/2, leverBounds.top + height/2)
+    distToLever = euclidean_distance(playerPos, leverCenter)
+
+  If distToLever < 40.0f AND !leverPulled:
+    - Show floating "Press 'E' to open" text above player head
+    - Text positioned at (playerX - 60, playerY - 80) in world space
+    - Draw semi-transparent background tag for readability
+    - If PLAYING AND E key pressed → gameMap.triggerLever()
+
+9.2  LEVER 2 INTERACTION (Lines 1087–1111)
+──────────────────────────────────────────
+  Identical pattern with lever 2 coordinates.
+
+9.3  DOOR INTERACTION (Lines 1113–1147)
+───────────────────────────────────────
+  Door center: (1931, 749), interaction radius: 150px
+
+  If distToDoor < 150.0f AND !doorOpen:
+    - If key collected: show "Press 'E' to Escape" in GREEN
+    - If key NOT collected: show "Find Key to Open" in AMBER
+    - Background tag with alpha 160 for contrast
+    - If PLAYING AND key collected AND E pressed → gameMap.openDoor()
+
+9.4  KEY AUTO-PICKUP (Lines 979–983)
+────────────────────────────────────
+  if (!gameMap.isKeyCollected() &&
+      player.getGlobalBounds().intersects(gameMap.getKeyBounds()))
+      → gameMap.collectKey()
+
+  Key is auto-collected on walk-over (no button press needed).
+
+9.5  CHEST AUTO-PICKUP (Lines 985–989)
+──────────────────────────────────────
+  if (!gameMap.isChestOpened() &&
+      player.getGlobalBounds().intersects(gameMap.getChestBounds()))
+      → gameMap.openChest(); coins += 300;
+
+  Chest is auto-collected on walk-over with immediate coin reward.
+
+================================================================================
+10. MAP DESIGN PHILOSOPHY
+================================================================================
+
+  DUNGEON LAYOUT:
+  - Single-screen dungeon (2239 × 1220 pixels actual playable area)
+  - 4 exterior walls forming a sealed boundary
+  - 12 interior walls creating corridors and rooms
+  - 2 lever-gated sections dividing the map into exploration zones
+
+  PROGRESSION FLOW:
+  1. Player spawns at (400, 300) — top-left open area
+  2. Navigate corridors, fight enemies
+  3. Find Lever 1 (right side, ~1758, 307) → opens right-lower zone
+  4. Find Lever 2 (bottom-right, ~2088, 993) → opens left-lower zone
+  5. Find Key (bottom-left, 391, 996) → hidden in the far corner
+  6. Navigate to Door (center-right, 1931, 749) → use key to open
+  7. Walk through open door → VICTORY
+
+  HAZARDS:
+  - 2 spike traps guarding the chest (1847, 226–310)
+  - Enemies spawning throughout the dungeon
+  - Environmental damage from spike contact (10 HP per tick)
+
+  REWARD:
+  - Chest (behind spikes) → +300 coins
+  - Enemy kills → +10/20/25 coins based on type
+
+================================================================================
+11. SUMMARY OF CONTRIBUTIONS
+================================================================================
+
+  ┌─────────────────────────────────────────────────────────────────┐
+  │  COMPONENT                    │ FILE           │ LINES         │
+  ├─────────────────────────────────────────────────────────────────┤
+  │  Map class declaration        │ Map.h          │ 1–96          │
+  │  Map constructor              │ Map.cpp        │ 4–15          │
+  │  Map texture + obstacle load  │ Map.cpp        │ 19–43         │
+  │  Props loading (spikes/chest) │ Map.cpp        │ 45–67         │
+  │  Lever 1 setup                │ Map.cpp        │ 69–86         │
+  │  Lever 2 setup                │ Map.cpp        │ 88–111        │
+  │  Door obstacle                │ Map.cpp        │ 132–133       │
+  │  Key sprite setup             │ Map.cpp        │ 135–143       │
+  │  Map2 preload                 │ Map.cpp        │ 145–151       │
+  │  Map rendering                │ Map.cpp        │ 154–205       │
+  │  Getters (spawn, bounds, etc) │ Map.cpp        │ 207–225       │
+  │  Lever 1 trigger + bounds     │ Map.cpp        │ 227–251       │
+  │  Lever 2 trigger + bounds     │ Map.cpp        │ 253–277       │
+  │  Key system                   │ Map.cpp        │ 279–290       │
+  │  Door system                  │ Map.cpp        │ 292–317       │
+  │  Chest system                 │ Map.cpp        │ 319–335       │
+  │  Map reset                    │ Map.cpp        │ 337–364       │
+  │  Lever 1 interaction UI       │ main.cpp       │ 1058–1085     │
+  │  Lever 2 interaction UI       │ main.cpp       │ 1087–1111     │
+  │  Door interaction UI          │ main.cpp       │ 1113–1147     │
+  │  Key auto-pickup              │ main.cpp       │ 979–983       │
+  │  Chest auto-pickup            │ main.cpp       │ 985–989       │
+  └─────────────────────────────────────────────────────────────────┘
+
+  DATA STRUCTURES USED:
+  • std::vector<sf::FloatRect> obstacles — dynamic list of collision rectangles
+    (dynamically modified as levers/doors are triggered)
+  • std::vector<sf::Sprite> props — prop sprite storage
+
+  KEY ALGORITHMS:
+  • Iterator-based obstacle removal for lever/door triggering
+  • Coordinate-matching search for specific obstacle identification
+  • Euclidean distance for circular proximity detection
+  • AABB intersection for item pickup detection
+  • Texture hot-swapping for map state transitions (map.jpg ↔ map2.jpg)
+
+================================================================================

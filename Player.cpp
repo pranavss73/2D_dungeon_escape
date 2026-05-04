@@ -20,6 +20,8 @@ Player::Player() {
     stamina = maxStamina;
     
     damageCooldown = 0.0f;
+    speedMultiplier = 1.0f;
+    baseDamage = 10;
 }
 
 Player::~Player() {}
@@ -111,10 +113,12 @@ void Player::update(float deltaTime, const sf::Vector2f& mousePos, const Map& ga
         damageCooldown -= deltaTime;
     }
 
-    if (sf::Keyboard::isKeyPressed(sf::Keyboard::W)) velocity.y -= speed;
-    if (sf::Keyboard::isKeyPressed(sf::Keyboard::S)) velocity.y += speed;
-    if (sf::Keyboard::isKeyPressed(sf::Keyboard::A)) velocity.x -= speed;
-    if (sf::Keyboard::isKeyPressed(sf::Keyboard::D)) velocity.x += speed;
+    float currentSpeed = speed * speedMultiplier;
+
+    if (sf::Keyboard::isKeyPressed(sf::Keyboard::W)) velocity.y -= currentSpeed;
+    if (sf::Keyboard::isKeyPressed(sf::Keyboard::S)) velocity.y += currentSpeed;
+    if (sf::Keyboard::isKeyPressed(sf::Keyboard::A)) velocity.x -= currentSpeed;
+    if (sf::Keyboard::isKeyPressed(sf::Keyboard::D)) velocity.x += currentSpeed;
 
     // Apply X movement and check collision
     sprite.move(velocity.x * deltaTime, 0);
@@ -174,6 +178,18 @@ void Player::draw(sf::RenderWindow& window) {
     box.setPosition(bounds.left, bounds.top);
     box.setFillColor(sf::Color(0, 255, 0, 0)); 
     window.draw(box);
+}
+
+void Player::setSpeedMultiplier(float mult) {
+    speedMultiplier = mult;
+}
+
+void Player::setBaseDamage(int damage) {
+    baseDamage = damage;
+}
+
+int Player::getDamage() const {
+    return baseDamage;
 }
 
 void Player::setPosition(float x, float y) {
