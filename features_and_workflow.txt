@@ -1,0 +1,721 @@
+================================================================================
+           DUNGEON ESCAPE RPG - FEATURES AND WORKFLOW DOCUMENTATION
+================================================================================
+
+
+================================================================================
+SECTION 1: ALL FEATURES OF THE GAME
+================================================================================
+
+Below is a complete list of every feature in the game — both those currently
+implemented and those planned for the upcoming update. Planned features are
+clearly marked with [PLANNED].
+
+--------------------------------------------------------------------------------
+1.1  PLAYER CHARACTER
+--------------------------------------------------------------------------------
+
+   a) Four-Directional Movement:
+      The player moves using W (up), A (left), S (down), D (right) keys at a
+      speed of 200 pixels per second. Movement is frame-rate independent,
+      meaning the character moves the same distance regardless of how fast
+      the computer runs, thanks to delta-time multiplication.
+
+   b) Sprite Sheet Animation System:
+      The player character has 12 separate sprite sheets loaded:
+      - 4 idle sprites (one per direction: up, down, left, right)
+      - 4 running sprites (one per direction)
+      - 4 melee attack sprites (one per direction)
+      Each sprite sheet contains 8 frames arranged horizontally. The game
+      cycles through these frames at a set speed to create smooth animation.
+      The correct sheet is selected based on the player's current direction
+      and action (idle, running, or attacking).
+
+   c) Per-Axis Wall Collision:
+      The player cannot walk through walls. Collision is checked separately
+      for the X-axis and Y-axis. The player moves horizontally first, and
+      if that causes a collision with any wall rectangle, the horizontal
+      movement is reverted. Then the player moves vertically, and if that
+      causes collision, the vertical movement is reverted. This approach
+      allows the player to "slide" along walls instead of getting stuck.
+
+   d) Reduced Collision Footprint:
+      The player's collision hitbox is NOT the full sprite image. Instead,
+      it is shrunk down to a tiny rectangle at the character's feet
+      (15% of sprite width, 12% of sprite height, positioned at the bottom
+      center). This creates a natural top-down RPG perspective effect where
+      the player can visually overlap walls from above, and only their feet
+      need to clear obstacles.
+
+   e) Melee Attack (Spacebar):
+      Pressing the Space key triggers a melee slash attack. The attack:
+      - Costs 10 stamina (attack is denied if stamina is insufficient).
+      - Plays the attack animation (0.3 seconds per swing).
+      - Creates a rectangular attack hitbox extending 80 pixels in front of
+        the player in the direction they are facing.
+      - Any enemy whose bounding box overlaps with this attack rectangle
+        takes 1 point of damage.
+      - Plays a slash sound effect (slash.wav).
+      - The player cannot attack again while the current attack animation
+        is still playing.
+
+   f) Health System (100 HP):
+      The player starts with 100 health points. Health is displayed as a
+      segmented bar at the bottom-center of the screen (10 crimson-red
+      segments, each representing 10 HP). Health can be reduced by:
+      - Enemy contact damage (10 HP from basic enemies, 20 HP from advanced).
+      - Spike trap damage (10 HP per spike contact).
+      When health reaches 0, the game ends (Game Over state).
+
+   g) Stamina System (50 Stamina):
+      The player has 50 stamina points used for melee attacks (10 per swing).
+      Stamina is displayed as a segmented bar below the health bar (5 blue
+      segments, each representing 10 stamina). Stamina regenerates:
+      - 5.0 points per second while idle (not moving).
+      - 1.5 points per second while running.
+      This system prevents infinite attack spam and forces the player to
+      manage their resources carefully.
+
+   h) Damage Invincibility Frames (i-Frames):
+      After taking damage, the player is invulnerable for 1 full second.
+      This prevents enemies from instantly killing the player through rapid
+      repeated contact damage. The cooldown timer decrements every frame.
+
+   i) Shadow Effect:
+      A soft, translucent black elliptical shadow is drawn beneath the
+      player's feet to ground the character in the environment and enhance
+      the visual depth of the top-down perspective.
+
+   j) Mouse Aim Tracking:
+      The player's position relative to the mouse cursor is calculated every
+      frame. While the rotation is not currently applied to the sprite (the
+      sprite uses 4-directional animation instead), the infrastructure for
+      cursor-based aiming exists.
+
+--------------------------------------------------------------------------------
+1.2  ENEMY SYSTEM
+--------------------------------------------------------------------------------
+
+   a) Four Enemy Types:
+      The game features 4 visually and mechanically distinct enemy types:
+
+      Type 0 — Basic Skeleton:
+      - Simple 9x4 sprite sheet (9 frames, 4 directions).
+      - 1 HP (dies in a single hit).
+      - No attack animation (damages player on contact only).
+      - Drawn with a programmatic shadow beneath.
+
+      Type 1 — Advanced Enemy 2:
+      - Separate sprite sheets for run (8x4), attack (8x4), hurt (6x4).
+      - 2 HP (requires 2 melee hits to kill).
+      - Has a melee attack animation when within 60px of the player.
+      - Deals 15 HP damage (double the basic enemy).
+      - Pre-baked shadow in sprite images.
+
+      Type 2 — Advanced Enemy 3:
+      - Same sprite sheet structure as Type 1 but different visuals.
+      - 3 HP (requires 3 hits to kill).
+      - Has attack and hurt animations.
+      - Deals 20 HP damage on contact.
+
+      Type 3 — Advanced Enemy 4:
+      - Same sprite sheet structure as Type 1 but different visuals.
+      - 4 HP (requires 4 hits to kill — the toughest enemy).
+      - Has attack and hurt animations.
+      - Deals 30 HP damage on contact.
+
+   b) Enemy AI — Chase Behavior:
+      Each alive enemy calculates the distance and direction to the player
+      every frame. If the player is within 800 pixels, the enemy moves
+      directly toward the player at 100 pixels per second. If the player is
+      farther than 800 pixels, the enemy stands idle. The direction vector
+      is normalized so all enemies move at the same speed regardless of
+      angle.
+
+   c) Enemy State Machine:
+      Every enemy operates on a 6-state finite state machine:
+      - SPAWNING: The enemy has just appeared. A smoke/portal spawn effect
+        plays (11 frames). The enemy cannot move, attack, or take damage.
+      - ALIVE: Normal active state. The enemy chases the player and can
+        transition to ATTACKING if close enough (types 1-3 only).
+      - ATTACKING: The enemy plays its attack animation. During this state,
+        the damage hitbox expands to the full sprite bounds. After the
+        animation completes, the enemy returns to ALIVE.
+      - HURT: Triggered when the enemy takes damage but survives. The enemy
+        receives knockback (pushed 250 px/sec away from the damage source,
+        decaying with friction) and plays a hurt animation. Returns to ALIVE
+        after the animation finishes.
+      - DYING: The enemy's HP has reached 0. A death smoke effect plays
+        (11 frames from the top row of the effect sheet). The enemy sprite
+        is hidden and only the effect is drawn.
+      - DEAD: The enemy is fully removed from all gameplay logic. It still
+        exists in the vector but is skipped in all update, draw, and
+        collision checks.
+
+   d) Wall Collision for Enemies:
+      Enemies use the same per-axis collision system as the player. They
+      check horizontal movement against all obstacle rectangles, revert if
+      collision occurs, then check vertical movement separately. This
+      prevents enemies from walking through walls.
+
+   e) Reduced Enemy Collision Footprint:
+      Like the player, enemy collision boxes are reduced to a small rectangle
+      at their feet. For advanced enemies (types 1-3), the footprint is only
+      16% width and 12% height of the full sprite, positioned at the center
+      bottom. This allows enemies to navigate through narrow dungeon
+      corridors without getting stuck on walls.
+
+   f) Knockback on Damage:
+      When an enemy takes damage, a knockback velocity vector is calculated
+      pointing AWAY from the damage source (the player's position). The
+      enemy is pushed at 250 px/sec initially, with the velocity decaying
+      rapidly via exponential friction (multiplied by 0.01^deltaTime each
+      frame). This gives satisfying combat feedback.
+
+   g) Random Enemy Type Selection:
+      When a new enemy spawns, the type is chosen randomly:
+      - 25% chance of Type 0 (basic skeleton)
+      - 25% chance each of Types 1, 2, and 3 (advanced enemies)
+      This creates variety in combat encounters.
+
+   h) Spawn/Death Visual Effects:
+      Both spawning and dying use a shared sprite sheet
+      (enemy_die_spawn.png) with 11 animation frames. The bottom row
+      (Y=65) is used for the spawn effect and the top row (Y=0) for the
+      death effect. The effect sprite is positioned over the enemy location
+      and animated independently.
+
+   i) [PLANNED] Escalating Enemy Count Over Time:
+      As the game progresses, the spawn rate will increase. The spawn
+      interval (currently fixed at 3 seconds) will decrease over time,
+      meaning enemies will appear faster and faster. The maximum enemy cap
+      will also rise. This creates mounting pressure forcing the player to
+      either escape quickly or die.
+
+   j) [PLANNED] Level-Based Enemy Scaling:
+      Enemies will become stronger based on the selected difficulty level:
+      - Level 1: Base stats (current values).
+      - Level 2: Enemies have 1.5x HP and slightly faster speed.
+      - Level 3: Enemies have 2x HP, faster speed, and shorter spawn
+        intervals, making survival extremely challenging.
+
+--------------------------------------------------------------------------------
+1.3  MAP AND ENVIRONMENT
+--------------------------------------------------------------------------------
+
+   a) Full Dungeon Map:
+      The game world is a single large dungeon image (2239x1220 pixels)
+      rendered as a background sprite. The map contains hallways, rooms,
+      wall structures, and a dungeon aesthetic with stone floors and walls.
+
+   b) Scrolling Camera:
+      The SFML View system creates a camera that follows the player. The
+      visible area is 1280x720 pixels (the window size), and the view
+      center is updated to the player's position every frame. This creates
+      smooth scrolling as the player explores the dungeon.
+
+   c) Hardcoded Wall Obstacles:
+      The dungeon's walls are represented by 16+ invisible rectangular
+      barriers (sf::FloatRect) hardcoded in Map.cpp. These rectangles cover:
+      - All four boundary walls (top, bottom, left, right edges)
+      - All internal wall structures and pillars
+      The coordinates were determined using Python analysis scripts that
+      scanned the map image for wall pixels.
+
+   d) Spike Traps (2 instances):
+      Two spike trap props are placed in the dungeon near a chest. Walking
+      over either spike deals 10 HP damage to the player (subject to the
+      1-second invincibility cooldown). The spikes are rendered using the
+      spikes.png sprite scaled and positioned manually.
+
+   e) Decorative Chest:
+      A treasure chest prop is placed in the dungeon as set dressing. It
+      has a shadow drawn beneath it for visual grounding.
+
+   f) Lever Puzzle Mechanic:
+      A lever switch is placed in the dungeon. When the player is within
+      40 pixels of the lever, a yellow "Press 'E' to open" prompt appears
+      above the player's head (with a background tag for readability).
+      Pressing 'E' triggers the lever, which:
+      - Flips the lever sprite vertically (visual confirmation).
+      - Removes the stone blockade sprite from rendering.
+      - Removes the large invisible barrier rectangle (1372, 590, 867, 565)
+        from the obstacles vector, opening the path to the escape area.
+
+   g) Escape Door:
+      An invisible escape door zone is defined at coordinates
+      (2700, 1400, 100, 100). When the player's collision bounds intersect
+      this zone, the game enters the "Escaped" state and displays the
+      victory message with the final score.
+
+   h) [PLANNED] Key Pickup Mechanic:
+      A key item will be placed somewhere in the dungeon. The player must
+      find and collect the key by walking over it (or pressing an interact
+      button). The escape door will only work if the player possesses the
+      key. This adds an exploration/puzzle element before escape.
+
+   i) [PLANNED] Three Selectable Levels:
+      Before starting the game, a level selection menu will let the player
+      choose from three difficulty levels. Each level will have:
+      - Different enemy stat scaling (HP, speed, damage).
+      - Different spawn rates and maximum enemy counts.
+      - Potentially different map layouts or starting conditions.
+
+--------------------------------------------------------------------------------
+1.4  COMBAT SYSTEM
+--------------------------------------------------------------------------------
+
+   a) Melee-Only Combat:
+      The game uses exclusively melee combat. The player presses Space to
+      swing their weapon, creating a directional hitbox in front of them.
+      Any enemy overlapping that hitbox takes 1 point of damage. There is
+      no ranged attack system — the player must get close to enemies
+      to fight them.
+
+   b) Stamina-Gated Attacks:
+      Each melee attack costs 10 stamina out of the player's 50 maximum.
+      After spending all stamina, the player must wait for it to regenerate
+      before attacking again. This prevents mindless button mashing and
+      requires strategic timing.
+
+   c) Enemy Damage to Player:
+      Enemies damage the player through direct contact:
+      - Basic enemies (Type 0): 10 HP damage.
+      - Advanced enemies (Type 1): 20 HP damage.
+      - Advanced enemies (Types 2-3): 10 HP damage.
+      Damage is only dealt when the enemy is in the ALIVE or ATTACKING state
+      and its damage bounds overlap the player's collision bounds.
+
+   d) Score System:
+      Killing an enemy awards 10 points. The score is displayed in the
+      top-left corner of the HUD and shown on the victory screen.
+
+   e) QuadTree-Optimized Collision:
+      All combat collision queries (melee attacks against enemies) use the
+      QuadTree to narrow down candidates. Instead of checking the attack
+      rectangle against ALL 20 possible enemies, the QuadTree retrieves
+      only the 1-4 enemies in the same spatial region.
+
+--------------------------------------------------------------------------------
+1.5  USER INTERFACE (HUD)
+--------------------------------------------------------------------------------
+
+   a) Score Display:
+      Top-left corner of the screen, white text showing "Score: X".
+      Uses the default view (fixed screen position, does not move with
+      the camera).
+
+   b) Health Bar:
+      Centered at the bottom of the screen. 10 rectangular segments, each
+      28x15 pixels with 2px visual gaps. Background is dark gray with black
+      outlines. Filled segments are crimson red (220, 20, 60). Partial
+      segments show proportional fill for fractional health values.
+
+   c) Stamina Bar:
+      Directly below the health bar. 5 rectangular segments, each 28x10
+      pixels. Same dark gray background with black outlines. Filled
+      segments are dodger blue (30, 144, 255).
+
+   d) Interaction Prompt:
+      When near the lever, a yellow text "Press 'E' to open" appears above
+      the player in world space (moves with the camera).
+
+   e) Victory Screen:
+      When the player escapes, the screen turns black and displays
+      "You Escaped! Final Score: X" in white text at the center.
+
+   f) Game Over Screen:
+      When the player dies, the screen fills with dark red (50, 0, 0) and
+      displays "YOU DIED! Game Over." in white text at the center.
+
+   g) [PLANNED] Level Selection Menu:
+      A menu screen shown before gameplay begins, offering three level
+      buttons (Level 1, Level 2, Level 3). The player clicks or presses
+      a key to select their difficulty level before entering the dungeon.
+
+--------------------------------------------------------------------------------
+1.6  AUDIO SYSTEM
+--------------------------------------------------------------------------------
+
+   a) Background Music:
+      A looping WAV track (music.wav) plays during gameplay at 15% volume.
+      The music creates dungeon atmosphere. It streams from disk rather
+      than loading entirely into memory due to its large file size (~40 MB).
+
+   b) Melee Slash Sound Effect:
+      A short WAV clip (slash.wav) plays each time the player successfully
+      triggers a melee attack. Volume is set to 70% for audible impact.
+
+   c) Game Over Music:
+      When the player dies, the background music stops and a game-over music
+      track (game_over.wav) plays once at 25% volume. This only triggers
+      once per death (tracked by hasPlayedGameOver boolean).
+
+--------------------------------------------------------------------------------
+1.7  ENEMY SPAWNING SYSTEM
+--------------------------------------------------------------------------------
+
+   a) Initial Spawn:
+      At game start, 10 enemies are spawned at random valid positions
+      throughout the dungeon (INITIAL_ENEMY_COUNT = 10).
+
+   b) Safe Spawn Algorithm:
+      Each enemy spawn attempts up to 50 random positions. For each attempt:
+      - A random (X, Y) position is generated within the playable area
+        (X: 187-2127, Y: 215-1079, avoiding boundary walls).
+      - The enemy is temporarily placed and its bounds are checked against
+        ALL wall obstacles.
+      - The distance to the player is verified to be > 300 pixels.
+      - If both checks pass, the spawn is accepted.
+      - If all 50 attempts fail, the enemy is deleted (spawn aborted).
+
+   c) Continuous Spawning:
+      Every 3 seconds (spawnInterval), a new enemy is spawned if the active
+      enemy count is below 20 (MAX_ENEMIES_ON_SCREEN). This creates a
+      relentless flow of enemies pressuring the player.
+
+   d) [PLANNED] Escalating Spawn Pressure:
+      The spawn interval will decrease over time (e.g., from 3 seconds down
+      to 1 second), and the max enemy cap will increase. This creates an
+      inevitable death scenario if the player takes too long, incentivizing
+      quick puzzle-solving and escape.
+
+--------------------------------------------------------------------------------
+1.8  GAME STATE MANAGEMENT
+--------------------------------------------------------------------------------
+
+   a) Currently, game state is managed by two boolean flags:
+      - escaped (bool): Set to true when the player touches the escape door.
+      - gameOver (bool): Set to true when the player's health reaches 0.
+      When either flag is true, the game loop skips all update logic and
+      renders only the respective end screen.
+
+   b) [PLANNED] Formal State Machine:
+      The game will be expanded with a proper state enumeration:
+      - MENU: Display main menu / level selection screen.
+      - PLAYING: Active gameplay.
+      - GAME_OVER: Player has died.
+      - ESCAPED: Player has successfully escaped.
+      Each state will have its own update and render logic.
+
+
+================================================================================
+SECTION 2: GAME WORKFLOW (Player's Experience)
+================================================================================
+
+This section describes the complete player experience from launch to completion.
+
+--------------------------------------------------------------------------------
+STEP 1: GAME LAUNCH
+--------------------------------------------------------------------------------
+   - The player double-clicks the executable (or runs from Visual Studio).
+   - A 1280x720 window opens with the title "SFML RPG with DSA QuadTree".
+   - [PLANNED] A level selection menu appears with three options:
+     Level 1 (Easy), Level 2 (Medium), Level 3 (Hard).
+   - [PLANNED] The player clicks their chosen difficulty level.
+
+--------------------------------------------------------------------------------
+STEP 2: GAME INITIALIZATION
+--------------------------------------------------------------------------------
+   - The dungeon map loads and the camera centers on the spawn point.
+   - Background music begins playing on loop.
+   - The player character appears at the spawn point (400, 300).
+   - 10 enemies spawn at random valid locations throughout the dungeon.
+   - Health bar (full, 100 HP) and stamina bar (full, 50 stamina) appear
+     at the bottom of the screen.
+   - Score displays "Score: 0" in the top-left corner.
+
+--------------------------------------------------------------------------------
+STEP 3: EXPLORATION PHASE
+--------------------------------------------------------------------------------
+   - The player uses WASD to navigate through the dungeon corridors.
+   - The camera smoothly follows the player as they explore.
+   - Enemies begin chasing the player when within 800 pixels.
+   - The player must avoid spike traps in narrow passages.
+   - [PLANNED] The player searches for the key item hidden in the dungeon.
+   - New enemies spawn every 3 seconds, gradually filling the dungeon.
+   - [PLANNED] As time passes, spawn rate increases and enemies become
+     more numerous.
+
+--------------------------------------------------------------------------------
+STEP 4: COMBAT ENCOUNTERS
+--------------------------------------------------------------------------------
+   - When enemies get close, the player presses Space to perform melee attacks.
+   - Each attack:
+     * Costs 10 stamina from the blue bar.
+     * Plays the slash animation and sound effect.
+     * Creates a directional hitbox checking for enemy overlap.
+     * Deals 1 damage to any enemy in range.
+   - Basic skeletons die in 1 hit (+10 score each).
+   - Advanced enemies require 2-4 hits depending on type.
+   - Advanced enemies (Type 1+) have their own melee attack within 60px.
+   - The player must manage stamina: after 5 consecutive attacks, they must
+     wait for regeneration before attacking again.
+   - Taking damage from enemies or spikes reduces the red health bar.
+   - After taking damage, 1 second of invincibility prevents chain damage.
+
+--------------------------------------------------------------------------------
+STEP 5: LEVER PUZZLE
+--------------------------------------------------------------------------------
+   - The player navigates to the lever location in the dungeon.
+   - When within 40 pixels, a yellow "Press 'E' to open" prompt appears.
+   - Pressing 'E' pulls the lever:
+     * The lever sprite flips upside-down visually.
+     * The stone blockade disappears from the map.
+     * The invisible barrier blocking the escape area is removed.
+   - This opens the path to the escape door.
+
+--------------------------------------------------------------------------------
+STEP 6: [PLANNED] KEY COLLECTION
+--------------------------------------------------------------------------------
+   - Before reaching the escape door, the player must find and collect a key
+     placed somewhere in the dungeon.
+   - Walking over the key (or pressing 'E' near it) adds it to the player's
+     inventory.
+   - The escape door checks for key possession before allowing escape.
+
+--------------------------------------------------------------------------------
+STEP 7: ESCAPE OR DEATH
+--------------------------------------------------------------------------------
+   Outcome A — Successful Escape:
+   - The player navigates to the escape door zone after pulling the lever
+     (and [PLANNED] collecting the key).
+   - The player's collision bounds touch the escape door rectangle.
+   - The screen turns black and displays:
+     "You Escaped! Final Score: X"
+   - The game loop continues rendering this screen until the window is closed.
+
+   Outcome B — Death:
+   - The player's health drops to 0 from enemy or spike damage.
+   - Background music stops.
+   - Game-over music plays once.
+   - The screen fills with dark red and displays:
+     "YOU DIED! Game Over."
+   - [PLANNED] With escalating enemies, death becomes increasingly likely
+     the longer the player takes, creating a time-pressure escape game.
+
+--------------------------------------------------------------------------------
+STEP 8: POST-GAME
+--------------------------------------------------------------------------------
+   - The player can close the window (Alt+F4 or clicking the X button).
+   - All dynamically allocated memory (enemies, bullets) is freed.
+   - [PLANNED] A "Return to Menu" option will allow replaying on a
+     different difficulty level.
+
+
+================================================================================
+SECTION 3: SYSTEM WORKFLOW (Technical Execution Flow)
+================================================================================
+
+This section describes how the game works internally, frame by frame.
+
+--------------------------------------------------------------------------------
+3.1  APPLICATION STARTUP SEQUENCE
+--------------------------------------------------------------------------------
+
+   1. main() is called by the operating system.
+   2. sf::RenderWindow is created (1280x720, 60 FPS limit).
+   3. Random seed is set using current time (std::srand(std::time(nullptr))).
+   4. Map object is constructed:
+      a) Map::load("assets/map.jpg") loads the dungeon texture.
+      b) 16+ obstacle FloatRects are pushed into the obstacles vector.
+      c) Spike and chest props are loaded and positioned.
+      d) Lever and block sprites are loaded and positioned.
+      e) The invisible blockade rectangle is added to obstacles.
+   5. SFML View is created and centered on the map's spawn point.
+   6. Player object is constructed:
+      a) Player::loadTextures() loads all 12 sprite sheets (idle/run/attack
+         × 4 directions).
+      b) Frame size is set to 96x80 pixels, scale to 1.5x.
+      c) Player is positioned at the spawn point.
+   7. Enemy vector is populated:
+      a) spawnEnemy() is called 10 times.
+      b) Each call creates a new Enemy, randomly selects type (0-3),
+         loads the appropriate sprite sheets, finds a safe position, and
+         pushes the pointer into the enemies vector.
+   8. Font loads from arial.ttf for text rendering.
+   9. Audio system initializes:
+      a) sf::Music opens and begins looping music.wav at 15% volume.
+      b) sf::SoundBuffer loads slash.wav, connects to sf::Sound.
+      c) sf::Music opens game_over.wav (not played yet).
+   10. Game state variables are initialized:
+       score = 0, escaped = false, gameOver = false,
+       spawnTimer = 0, spawnInterval = 3.0f
+   11. Delta-time clock is started.
+
+   [PLANNED] Before step 5, a menu loop will run:
+   - Render level selection buttons (Level 1, 2, 3).
+   - Wait for player input.
+   - Set difficulty parameters based on selected level.
+   - Then proceed with initialization using level-specific settings.
+
+--------------------------------------------------------------------------------
+3.2  MAIN GAME LOOP (Executes 60 times per second)
+--------------------------------------------------------------------------------
+
+   The game loop repeats every frame (approximately every 16.67ms at 60 FPS):
+
+   ┌─────────────────────────────────────────────────────────────────────┐
+   │                    FRAME START                                     │
+   │  1. Calculate delta-time (dt = dtClock.restart().asSeconds())       │
+   └─────────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+   ┌─────────────────────────────────────────────────────────────────────┐
+   │                    EVENT POLLING                                    │
+   │  2. Process all queued SFML events:                                │
+   │     - sf::Event::Closed → window.close() → exit game loop         │
+   │     - sf::Keyboard::Space → player.attack() → slash sound →       │
+   │       check attack bounds vs all enemies → award score on kill    │
+   └─────────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+   ┌─────────────────────────────────────────────────────────────────────┐
+   │                    STATE CHECK                                     │
+   │  3. If escaped == true:                                            │
+   │     → Render black screen + "You Escaped!" → skip to DISPLAY      │
+   │  4. If gameOver == true:                                           │
+   │     → Render dark red screen + "YOU DIED!" → skip to DISPLAY      │
+   └─────────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+   ┌─────────────────────────────────────────────────────────────────────┐
+   │                    SPAWNER UPDATE                                  │
+   │  5. spawnTimer += dt                                               │
+   │  6. Count active (non-dead) enemies                                │
+   │  7. If spawnTimer >= 3.0s AND activeEnemies < 20:                 │
+   │     → Reset timer, call spawnEnemy() to add a new enemy           │
+   └─────────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+   ┌─────────────────────────────────────────────────────────────────────┐
+   │                    PLAYER UPDATE                                   │
+   │  8. Get mouse world position via window.mapPixelToCoords()        │
+   │  9. player.update(dt, mouseWorldPos, gameMap):                    │
+   │     a) Reset velocity to zero                                      │
+   │     b) Regenerate stamina (5/sec idle, 1.5/sec moving)            │
+   │     c) Decrement damage cooldown timer                             │
+   │     d) Read WASD keys → set velocity components                   │
+   │     e) Move X → check wall collision → revert if hit              │
+   │     f) Move Y → check wall collision → revert if hit              │
+   │     g) Update animation frame based on state and direction         │
+   └─────────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+   ┌─────────────────────────────────────────────────────────────────────┐
+   │                    CAMERA UPDATE                                   │
+   │  10. Set view center to player's current position                  │
+   │  11. Apply view to window (window.setView(view))                  │
+   └─────────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+   ┌─────────────────────────────────────────────────────────────────────┐
+   │                    QUADTREE REBUILD (DSA CORE)                    │
+   │  12. Create fresh QuadTree covering entire map (3000x2000)        │
+   │  13. For each alive enemy:                                         │
+   │      a) enemy.update(dt, playerPos, gameMap):                     │
+   │         - Run state machine (SPAWNING/ALIVE/ATTACKING/HURT/DYING) │
+   │         - If ALIVE: Chase player if distance < 800px              │
+   │         - Move with per-axis wall collision                        │
+   │         - Update animation                                         │
+   │      b) Create QuadTreeData with enemy bounds + index             │
+   │      c) Insert into QuadTree:                                     │
+   │         - Determine which quadrant the enemy fits in              │
+   │         - Recurse to correct child node                            │
+   │         - If node exceeds MAX_OBJECTS (5), split into 4 children  │
+   │         - Redistribute objects among children                      │
+   └─────────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+   ┌─────────────────────────────────────────────────────────────────────┐
+   │                    ESCAPE CHECK                                    │
+   │  14. If player bounds intersect escape door bounds:               │
+   │      → Set escaped = true                                         │
+   └─────────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+   ┌─────────────────────────────────────────────────────────────────────┐
+   │                    DAMAGE PROCESSING                               │
+   │  15. For each alive/attacking enemy:                               │
+   │      → If enemy damage bounds intersect player bounds:            │
+   │        → player.takeDamage(10 or 20) [respects i-Frames]          │
+   │  16. Check player vs spike traps:                                  │
+   │      → If player bounds intersect spike 1 or spike 2:            │
+   │        → player.takeDamage(10) [respects i-Frames]                │
+   │  17. If player health <= 0:                                       │
+   │      → Set gameOver = true                                         │
+   │      → Stop background music, play game-over music                │
+   └─────────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+   ┌─────────────────────────────────────────────────────────────────────┐
+   │                    RENDERING (Draw Order)                          │
+   │  18. window.clear()                                                │
+   │  19. gameMap.draw() — Background map + props + lever + block      │
+   │      + debug collision box overlays                                │
+   │  20. For each enemy: enemy.draw() — Shadow + sprite + debug box   │
+   │  21. player.draw() — Shadow + sprite + debug box                   │
+   │  22. Lever interaction UI (if player near lever and not pulled)    │
+   └─────────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+   ┌─────────────────────────────────────────────────────────────────────┐
+   │                    HUD OVERLAY RENDERING                           │
+   │  23. Switch to default (screen-space) view                         │
+   │  24. Draw score text at top-left                                   │
+   │  25. Draw health bar (10 crimson segments) at bottom-center       │
+   │  26. Draw stamina bar (5 blue segments) below health bar          │
+   └─────────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+   ┌─────────────────────────────────────────────────────────────────────┐
+   │                    FRAME END                                       │
+   │  27. window.display() — Swap buffers, present frame to screen     │
+   │  28. SFML enforces 60 FPS cap (waits if frame was too fast)       │
+   └─────────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+                        Loop back to FRAME START
+
+--------------------------------------------------------------------------------
+3.3  MEMORY MANAGEMENT LIFECYCLE
+--------------------------------------------------------------------------------
+
+   ALLOCATION TIMELINE:
+   Startup:
+   - Map textures, obstacle rects, prop sprites → allocated once.
+   - Player textures (12 sheets) → allocated once.
+   - 10 Enemy objects (new Enemy()) → allocated with dynamic memory.
+   - Font, Music, SoundBuffer → allocated once.
+
+   During Gameplay:
+   - New Enemy objects are allocated every 3 seconds via spawnEnemy().
+   - QuadTree nodes are allocated during split() and destroyed at end of
+     each frame (ephemeral rebuild pattern).
+
+   Shutdown:
+   - All Enemy pointers in the enemies vector are deleted.
+   - All Bullet pointers in the bullets vector are deleted.
+   - SFML objects (textures, sprites, music) clean up via destructors.
+   - QuadTree recursively deletes all child nodes via clear().
+
+--------------------------------------------------------------------------------
+3.4  COLLISION DETECTION PIPELINE (Per Frame)
+--------------------------------------------------------------------------------
+
+   1. BUILD spatial index: Insert all alive enemies into fresh QuadTree.
+   2. MELEE CHECK: If player attacking, get attack bounds rectangle.
+      → QuadTree retrieves nearby enemy candidates.
+      → Fine-test each candidate's bounds against attack bounds.
+      → Apply damage to intersecting enemies.
+   3. WALL CHECK (Player): Test player bounds against all obstacles.
+   4. WALL CHECK (Enemies): Test each enemy bounds against all obstacles.
+   5. ESCAPE CHECK: Test player bounds against escape door bounds.
+   6. DAMAGE CHECK: Test each enemy's damage bounds against player bounds.
+   7. SPIKE CHECK: Test player bounds against spike prop bounds.
+   8. LEVER CHECK: Calculate distance from player to lever center.
+
+
+================================================================================
+END OF DOCUMENT
+================================================================================

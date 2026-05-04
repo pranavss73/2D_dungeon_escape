@@ -1,0 +1,707 @@
+================================================================================
+        DUNGEON ESCAPE RPG - ROLES AND WORK DISTRIBUTION (5 Members)
+================================================================================
+               Project Work Division for Team of Five People
+================================================================================
+
+
+This document divides ALL project work (existing code + planned updates) into
+five clearly defined roles. Each role is designed so that one person can work
+mostly independently, with specific integration points where team members
+must coordinate.
+
+Total files in project: 12 source files (6 .cpp + 6 .h) + assets + docs
+Planned additions: ~4-5 new files/systems + modifications to existing files
+
+
+================================================================================
+PERSON 1: GAME ARCHITECTURE & MAIN LOOP ENGINEER
+         (Core Systems + Game State Management + Integration Lead)
+================================================================================
+
+OVERVIEW:
+Person 1 is the backbone of the project. They own the main.cpp file, the
+overall game loop, the game state machine, and serve as the integration
+point for all other team members' code. They also implement the level
+selection menu and the escalating difficulty system.
+
+--------------------------------------------------------------------------------
+DETAILED TASKS:
+--------------------------------------------------------------------------------
+
+1. MAIN GAME LOOP (main.cpp) — EXISTING:
+   - Understand and maintain the entire game loop structure.
+   - The main() function initializes all subsystems, runs the frame loop,
+     and handles cleanup.
+   - Manage the spawnEnemy() helper function that safely places enemies
+     on the map without overlapping walls or the player.
+   - Handle frame-by-frame execution order:
+     Event polling → State checks → Spawner → Player update → Camera →
+     QuadTree rebuild → Collision → Damage → Rendering → HUD.
+   - Manage all game constants (WINDOW_WIDTH = 1280, WINDOW_HEIGHT = 720,
+     INITIAL_ENEMY_COUNT = 10, MAX_ENEMIES_ON_SCREEN = 20).
+   - Handle the delta-time clock (sf::Clock) for frame-rate independence.
+   - Manage dynamic memory lifecycle: allocate enemies with new, store in
+     std::vector<Enemy*>, and delete all in cleanup.
+
+2. GAME STATE MACHINE — PLANNED UPDATE:
+   - Replace the current two boolean flags (escaped, gameOver) with a
+     formal enum-based state machine:
+     ```
+     enum GameState { MENU, LEVEL_SELECT, PLAYING, GAME_OVER, ESCAPED };
+     GameState currentState = MENU;
+     ```
+   - Implement state-specific update and render logic:
+     * MENU state: Display game title, "Start Game" button, controls info.
+       Wait for player to press Enter or click Start.
+     * LEVEL_SELECT state: Display three level cards (Level 1, Level 2,
+       Level 3) with difficulty descriptions. Wait for player to select
+       one, then store the level number and transition to PLAYING.
+     * PLAYING state: Run the existing game loop logic (all updates,
+       collision, rendering).
+     * GAME_OVER state: Show death screen, play game-over music, display
+       "Press R to Restart" or "Press M for Menu" options.
+     * ESCAPED state: Show victory screen with final score, display
+       "Press M for Menu" option.
+   - Handle state transitions cleanly (reset score, respawn enemies, etc.
+     when transitioning from MENU to PLAYING).
+
+3. LEVEL SELECTION MENU — PLANNED UPDATE:
+   - Create a visually appealing menu screen using sf::Text and
+     sf::RectangleShape for buttons.
+   - Display three selectable options:
+     * Level 1 — "Dungeon Apprentice" (Easy)
+       Description: "Fewer enemies, slower spawns, weaker foes."
+     * Level 2 — "Dungeon Warrior" (Medium)
+       Description: "Balanced challenge. Standard enemy strength."
+     * Level 3 — "Dungeon Nightmare" (Hard)
+       Description: "Relentless hordes. Strongest enemies. Good luck."
+   - Implement keyboard or mouse-based selection.
+   - Store the selected level and pass level-specific parameters to all
+     systems (enemy HP multiplier, spawn interval, max enemy count).
+
+4. ESCALATING DIFFICULTY SYSTEM — PLANNED UPDATE:
+   - Add a total elapsed game-time tracker (float elapsedGameTime).
+   - As time progresses, DECREASE the spawn interval:
+     * 0-30 seconds:   spawnInterval = 3.0s (current behavior)
+     * 30-60 seconds:  spawnInterval = 2.5s
+     * 60-90 seconds:  spawnInterval = 2.0s
+     * 90-120 seconds: spawnInterval = 1.5s
+     * 120+ seconds:   spawnInterval = 1.0s
+   - As time progresses, INCREASE the maximum enemy count:
+     * 0-30 seconds:   MAX_ENEMIES = 15
+     * 30-60 seconds:  MAX_ENEMIES = 20
+     * 60-90 seconds:  MAX_ENEMIES = 25
+     * 90+ seconds:    MAX_ENEMIES = 30
+   - Apply level multipliers on top of these values:
+     * Level 1: 0.75x enemy count, 1.5x spawn interval (easier)
+     * Level 2: 1.0x (base values)
+     * Level 3: 1.5x enemy count, 0.75x spawn interval (harder)
+   - Display a timer or wave indicator on the HUD so the player feels
+     the mounting pressure.
+
+5. INTEGRATION COORDINATION:
+   - Receive Player changes from Person 2, Enemy changes from Person 3,
+     Map changes from Person 4, and QuadTree/UI changes from Person 5.
+   - Ensure the main.cpp correctly calls all updated APIs.
+   - Resolve merge conflicts in main.cpp (the most edited file).
+   - Conduct integration testing after each team member delivers their part.
+
+--------------------------------------------------------------------------------
+FILES OWNED BY PERSON 1:
+--------------------------------------------------------------------------------
+   PRIMARY:  main.cpp (modify extensively)
+   CREATES:  GameState enum (can be added to main.cpp or new header)
+   MODIFIES: May add #includes for new headers from other team members
+
+--------------------------------------------------------------------------------
+DEPENDENCIES ON OTHER MEMBERS:
+--------------------------------------------------------------------------------
+   - Needs Person 3's level-scaled Enemy API (e.g., enemy->setLevelMultiplier())
+   - Needs Person 4's key-collected check (e.g., gameMap.isKeycollected())
+   - Needs Person 5's updated HUD rendering functions
+
+
+================================================================================
+PERSON 2: PLAYER SYSTEMS ENGINEER
+         (Player Movement + Combat + Resources + Animation)
+================================================================================
+
+OVERVIEW:
+Person 2 owns everything related to the player character — movement, melee
+combat, health/stamina resources, animation, collision bounds, and all
+player-related visual effects.
+
+--------------------------------------------------------------------------------
+DETAILED TASKS:
+--------------------------------------------------------------------------------
+
+1. PLAYER MOVEMENT SYSTEM — EXISTING:
+   - Maintain the WASD input-based movement at 200 pixels per second.
+   - Ensure per-axis wall collision works correctly:
+     * Move on X axis → check all obstacles → revert if collision.
+     * Move on Y axis → check all obstacles → revert if collision.
+   - Maintain the velocity vector and direction tracking (currentDir: 0=up,
+     1=down, 2=right, 3=left).
+   - Ensure diagonal movement works smoothly (both axes checked
+     independently).
+
+2. PLAYER ANIMATION SYSTEM — EXISTING:
+   - Manage 12 sprite sheets (4 idle + 4 run + 4 attack × 4 directions).
+   - Each sheet has 8 frames (columns), frame size 96x80 pixels.
+   - Animation speed: 0.1 seconds per frame for idle/run, proportional
+     speed for attack (0.3s total / 8 frames).
+   - Switch between idle, run, and attack textures based on player state.
+   - Track and cycle currentFrameX through columns using animationTime.
+   - Set the correct texture rect for the current frame.
+
+3. MELEE ATTACK SYSTEM — EXISTING:
+   - Trigger attack on Spacebar press (via player.attack() returning true).
+   - Attack costs 10 stamina; denied if stamina < 10.
+   - Attack animation lasts 0.3 seconds (attackDuration).
+   - Player cannot move or attack again during the attack animation.
+   - getAttackBounds() returns a directional hitbox:
+     * Facing Up: Extends 80px above player.
+     * Facing Down: Extends 80px below player.
+     * Facing Right: Extends 80px to the right of player.
+     * Facing Left: Extends 80px to the left of player.
+   - Attack bounds overlap with the player's own bounds to prevent misses
+     on very close enemies.
+
+4. HEALTH AND STAMINA RESOURCES — EXISTING:
+   - Health: 100 HP maximum. takeDamage() reduces health with 1-second
+     invincibility cooldown (damageCooldown timer).
+   - Stamina: 50 maximum. drainStamina() deducts for attacks.
+   - Stamina regeneration: 5.0/sec idle, 1.5/sec moving.
+   - Stamina cap: Cannot exceed maxStamina.
+   - Health floor: Cannot go below 0.
+
+5. PLAYER COLLISION FOOTPRINT — EXISTING:
+   - getGlobalBounds() returns a REDUCED hitbox:
+     Left: sprite.left + 40% width
+     Top: sprite.top + 70% height
+     Width: 15% of sprite width
+     Height: 12% of sprite height
+   - This tiny footprint at the player's feet allows natural visual overlap
+     with walls (top-down perspective effect).
+
+6. PLAYER VISUAL RENDERING — EXISTING:
+   - draw() renders in order:
+     a) Shadow ellipse beneath the player's feet (10% radius, 40% squash,
+        120 alpha black).
+     b) Main character sprite.
+     c) Debug collision box (green translucent rectangle — remove for final).
+
+7. PLAYER IMPROVEMENTS — PLANNED:
+   - Polish attack feel: Add a brief screen shake or sprite flash on hit.
+   - Potentially add a second attack combo if time allows.
+   - Ensure all debug rendering (green collision box) can be toggled off
+     for the final build (add a DEBUG flag or remove the draw calls).
+   - Consider adding death animation for the player (currently just freezes).
+   - Ensure player cannot move during GAME_OVER or ESCAPED states
+     (Person 1 handles this at the main loop level, but Player should
+     also respect it).
+
+--------------------------------------------------------------------------------
+FILES OWNED BY PERSON 2:
+--------------------------------------------------------------------------------
+   PRIMARY:  Player.h, Player.cpp
+   ASSETS:   All files in assets/Hero1/ (IDLE/, RUN/, ATTACK_1_IDLE/)
+
+--------------------------------------------------------------------------------
+DEPENDENCIES ON OTHER MEMBERS:
+--------------------------------------------------------------------------------
+   - Person 1 calls player.update(), player.draw(), player.attack() from
+     main.cpp.
+   - Person 4's Map provides obstacle rectangles for wall collision.
+   - Person 5's HUD reads player.getHealth() and player.getStamina().
+
+
+================================================================================
+PERSON 3: ENEMY SYSTEMS ENGINEER
+         (Enemy AI + Types + State Machine + Level Scaling)
+================================================================================
+
+OVERVIEW:
+Person 3 owns everything related to enemies — their AI behavior, state
+machine, damage/knockback, animation, spawning logic, and the planned
+level-based scaling system.
+
+--------------------------------------------------------------------------------
+DETAILED TASKS:
+--------------------------------------------------------------------------------
+
+1. ENEMY STATE MACHINE — EXISTING:
+   - Maintain the 6-state finite state machine (EnemyState enum):
+     SPAWNING, ALIVE, ATTACKING, HURT, DYING, DEAD.
+   - Implement all state transitions correctly in update():
+     * SPAWNING → ALIVE: When spawn effect completes (11 frames).
+     * ALIVE → ATTACKING: When distance to player <= 60px (types 1-3).
+     * ATTACKING → ALIVE: When attack animation completes.
+     * ALIVE/ATTACKING → HURT: When takeDamage() called and HP > 0.
+     * HURT → ALIVE: When hurt animation completes.
+     * ANY → DYING: When HP drops to 0 (kill() called).
+     * DYING → DEAD: When death effect completes (11 frames).
+
+2. ENEMY AI — CHASE BEHAVIOR — EXISTING:
+   - Calculate distance and direction vector from enemy to player.
+   - If distance is between 0.5 and 800 pixels, move toward player at
+     100 pixels/second.
+   - Normalize the direction vector for consistent speed at all angles.
+   - Per-axis wall collision: Move X → check obstacles → revert; then
+     Move Y → check obstacles → revert.
+   - Direction-based row selection for animation (4 directional rows).
+
+3. FOUR ENEMY TYPES — EXISTING:
+   - Type 0 (Basic Skeleton):
+     * Load from "assets/enemy.png" (9 columns × 4 rows).
+     * 1 HP, 100 px/sec speed, no attack animation.
+     * Damages player on contact (10 HP).
+     * Programmatic shadow drawn in code.
+   - Type 1 (Advanced Enemy 2):
+     * Load from "assets/enemies/enemy2_*.png" (run 8×4, attack 8×4,
+       hurt 6×4 sprite sheets).
+     * hp = type + 1 = 2 HP. Requires 2 hits to kill.
+     * Has attack animation triggered at 60px range.
+     * Deals 20 HP damage (double basic enemy).
+     * Pre-baked shadow in sprites.
+   - Type 2 (Advanced Enemy 3):
+     * Load from "assets/enemies/enemy3_*.png".
+     * 3 HP. Requires 3 hits.
+     * Has attack and hurt animations.
+     * Deals 10 HP damage.
+   - Type 3 (Advanced Enemy 4):
+     * Load from "assets/enemies/enemy4_*.png".
+     * 4 HP. The toughest enemy. Requires 4 hits.
+     * Has attack and hurt animations.
+     * Deals 10 HP damage.
+
+4. KNOCKBACK SYSTEM — EXISTING:
+   - On takeDamage(): Calculate direction vector from damage source
+     (player position) to enemy position.
+   - Apply knockback velocity of 250 px/sec in that direction.
+   - In HURT state update: Apply knockback movement each frame.
+   - Decay knockback via exponential friction:
+     knockbackVelocity *= pow(0.01f, deltaTime) each frame.
+
+5. SPAWN/DEATH EFFECTS — EXISTING:
+   - Shared sprite sheet: "assets/effect/enemy_die_spawn.png"
+     (11 columns × 2 rows, each row 65px tall).
+   - Spawn effect: Bottom row (Y=65), 11 frames, played during SPAWNING.
+   - Death effect: Top row (Y=0), 11 frames, played during DYING.
+   - Effect sprite positioned at enemy location with independent timer.
+
+6. ENEMY COLLISION BOUNDS — EXISTING:
+   - Type 0: Reduced to bottom 30% (20% inset left, 70% down, 60% width,
+     30% height).
+   - Types 1-3: Reduced to tiny footprint (42% inset left, 50% down,
+     16% width, 12% height) for navigating narrow corridors.
+   - getDamageBounds(): Returns full sprite bounds during ATTACKING state,
+     getGlobalBounds() otherwise.
+
+7. LEVEL-BASED ENEMY SCALING — PLANNED UPDATE:
+   - Add a method: void setLevelScaling(int level);
+   - Based on the level selected by the player (received from Person 1):
+     * Level 1 (Easy):
+       - HP: Base values (1/2/3/4 for types 0/1/2/3).
+       - Speed: 80 px/sec (slightly slower than base 100).
+       - Damage: Base values (10 or 20 HP).
+     * Level 2 (Medium):
+       - HP: 1.5× base (rounded up: 2/3/5/6 for types 0/1/2/3).
+       - Speed: 100 px/sec (base value).
+       - Damage: Base values.
+     * Level 3 (Hard):
+       - HP: 2× base (2/4/6/8 for types 0/1/2/3).
+       - Speed: 130 px/sec (30% faster than base).
+       - Damage: 1.5× base (15 or 30 HP).
+   - This scaling makes higher levels significantly harder, requiring more
+     hits per enemy and giving the player less time to react.
+
+8. ENEMY TYPE DISTRIBUTION PER LEVEL — PLANNED UPDATE:
+   - Adjust the random type selection based on level:
+     * Level 1: 50% Type 0, 20% Type 1, 20% Type 2, 10% Type 3.
+       (More basic enemies, fewer tough ones.)
+     * Level 2: 25% each (current behavior).
+     * Level 3: 10% Type 0, 20% Type 1, 30% Type 2, 40% Type 3.
+       (Mostly tough enemies, few basic ones.)
+
+9. CODE QUALITY:
+   - Remove debug rendering (blue collision box in Enemy::draw()) for
+     the final build, or add a toggle flag.
+   - Ensure no memory leaks in Enemy destruction (all textures and sprites
+     are stack-allocated members, so they auto-destruct — verify this).
+
+--------------------------------------------------------------------------------
+FILES OWNED BY PERSON 3:
+--------------------------------------------------------------------------------
+   PRIMARY:  Enemy.h, Enemy.cpp
+   ASSETS:   assets/enemy.png, all files in assets/enemies/,
+             assets/effect/enemy_die_spawn.png
+
+--------------------------------------------------------------------------------
+DEPENDENCIES ON OTHER MEMBERS:
+--------------------------------------------------------------------------------
+   - Person 1 calls spawnEnemy(), enemy->update(), enemy->draw() and
+     passes the selected level number.
+   - Person 4's Map provides obstacle rectangles for wall collision.
+   - Person 5's QuadTree stores enemy bounds for spatial queries.
+
+
+================================================================================
+PERSON 4: MAP & ENVIRONMENT ENGINEER
+         (Map Design + Obstacles + Props + Lever Puzzle + Key System)
+================================================================================
+
+OVERVIEW:
+Person 4 owns the dungeon environment — the map image, wall obstacles, props
+(spikes, chest), the lever puzzle mechanic, and the planned key pickup
+system. They are responsible for everything the player interacts with in
+the world that isn't an enemy.
+
+--------------------------------------------------------------------------------
+DETAILED TASKS:
+--------------------------------------------------------------------------------
+
+1. MAP LOADING AND RENDERING — EXISTING:
+   - Load the dungeon map image from "assets/map.jpg" (2239×1220 pixels).
+   - Display it as the background sprite every frame.
+   - The map covers the entire playable world; the camera scrolls over it.
+
+2. WALL OBSTACLE SYSTEM — EXISTING:
+   - Maintain the vector of sf::FloatRect obstacles that define all
+     impassable walls and barriers.
+   - Currently 16+ rectangles covering:
+     * Top boundary:   (0, 0, 2239, 215)
+     * Left boundary:  (0, 0, 187, 1220)
+     * Right boundary: (2127, 0, 120, 1220)
+     * Bottom boundary:(0, 1079, 2239, 138)
+     * Internal walls and pillars (12+ rectangles)
+   - Ensure all obstacle coordinates match the visual map walls precisely.
+   - Provide getObstacles() for Player and Enemy collision checks.
+   - The Map_Obstacles_Info.txt documentation explains how to find and
+     modify obstacle coordinates using image editors.
+
+3. PROP SYSTEM — EXISTING:
+   - Spikes (2 instances):
+     * Loaded from "assets/objects/spikes.png".
+     * Positioned at (1847, 226) and (1847, 310).
+     * Scaled to 50×70 pixels.
+     * Damage-dealing: Player takes 10 HP on contact.
+   - Chest (1 instance):
+     * Loaded from "assets/objects/chest.png".
+     * Positioned at (1920, 243), scaled to 65×65 pixels.
+     * Decorative only (no gameplay interaction currently).
+     * Has a shadow ellipse drawn beneath it.
+   - Props are stored in std::vector<sf::Sprite> and iterated for drawing.
+
+4. LEVER PUZZLE MECHANIC — EXISTING:
+   - Lever Sprite:
+     * Loaded from "assets/objects/lever.png".
+     * Positioned at (1746+12.5, 254+53), centered origin.
+     * Scaled to 25×106 pixels.
+   - Block Sprite (Blockade):
+     * Loaded from "assets/objects/block.png".
+     * Positioned at (1370, 832), scaled to 24×90 pixels.
+     * Rendered only when leverPulled == false.
+   - Invisible Blockade Rectangle:
+     * sf::FloatRect(1372, 590, 867, 565) added to obstacles vector.
+     * This is a large invisible wall preventing access to the escape area.
+   - triggerLever() method:
+     * Sets leverPulled = true.
+     * Flips the lever sprite vertically (negates Y scale).
+     * Iterates through the obstacles vector with an iterator, finds the
+       invisible blockade by matching its left and top coordinates, and
+       erases it using iterator-based removal.
+   - Interaction (handled in main.cpp by Person 1):
+     * When player is within 40px of lever center, display prompt.
+     * On pressing 'E', call gameMap.triggerLever().
+
+5. ESCAPE DOOR — EXISTING:
+   - Defined as sf::FloatRect(2700, 1400, 100, 100).
+   - getEscapeDoorBounds() returns this rectangle.
+   - When player bounds intersect this, the game triggers the escape state.
+   - [PLANNED] The escape door will require the player to have collected
+     the key before it triggers escape.
+
+6. KEY PICKUP SYSTEM — PLANNED UPDATE:
+   - Add new member variables to the Map class:
+     * sf::Texture keyTexture;
+     * sf::Sprite keySprite;
+     * bool keyCollected = false;
+     * sf::FloatRect keyBounds;
+   - Load key sprite from a new image (e.g., "assets/objects/key.png").
+   - Position the key at a specific location in the dungeon that requires
+     exploration to find (not near the spawn point or escape door).
+   - Add method: bool isKeyCollected() const;
+   - Add method: void collectKey(); — Sets keyCollected = true and hides
+     the key sprite.
+   - Add method: sf::FloatRect getKeyBounds() const;
+   - In draw(): Render the key sprite only if !keyCollected.
+   - In main.cpp (Person 1 integrates): Check if player bounds intersect
+     key bounds. If so, call gameMap.collectKey().
+   - Modify escape logic: Escape only triggers if
+     gameMap.isKeyCollected() == true.
+   - If player reaches the door without the key, display a message like
+     "You need the key to escape!" in yellow text.
+
+7. MAP ENHANCEMENTS — PLANNED:
+   - Add visual indicators for the key location (subtle glow or sparkle).
+   - Consider adding per-level map variations (different key/lever/spawn
+     locations per level), or at minimum, different spawn points.
+   - Remove debug collision rendering (red obstacle overlays) for the
+     final build, or add a DEBUG flag toggle.
+
+8. DOCUMENTATION:
+   - Keep Map_Obstacles_Info.txt updated with any new obstacle coordinates.
+   - Document the key location and any new prop positions.
+
+--------------------------------------------------------------------------------
+FILES OWNED BY PERSON 4:
+--------------------------------------------------------------------------------
+   PRIMARY:  Map.h, Map.cpp
+   ASSETS:   assets/map.jpg, all files in assets/objects/
+   CREATES:  Key sprite asset (assets/objects/key.png — source or create)
+   DOCS:     Map_Obstacles_Info.txt
+
+--------------------------------------------------------------------------------
+DEPENDENCIES ON OTHER MEMBERS:
+--------------------------------------------------------------------------------
+   - Person 1 calls gameMap.draw(), gameMap.triggerLever(),
+     gameMap.getObstacles(), gameMap.isKeyCollected() from main.cpp.
+   - Person 2 and Person 3 use getObstacles() for wall collision.
+   - Person 5 may render key-related HUD indicators.
+
+
+================================================================================
+PERSON 5: DATA STRUCTURES & UI ENGINEER
+         (QuadTree + HUD + Audio + Documentation)
+================================================================================
+
+OVERVIEW:
+Person 5 owns the core Data Structure implementation (QuadTree), the
+heads-up display (HUD) rendering, the audio system, and project
+documentation. This role is especially important for the DS-II course
+submission as it directly implements and documents the primary DSA
+component.
+
+--------------------------------------------------------------------------------
+DETAILED TASKS:
+--------------------------------------------------------------------------------
+
+1. QUADTREE DATA STRUCTURE — EXISTING (Primary DSA Component):
+   - Own and maintain QuadTree.h and QuadTree.cpp.
+   - The QuadTree spatially partitions the 2D game world to optimize
+     collision detection queries.
+
+   a) QuadTreeData Struct (QuadTree.h):
+      - sf::FloatRect bounds: The bounding box of the entity.
+      - int id: Index into the enemies vector for lookup.
+
+   b) QuadTree Class:
+      - Constructor: Takes a level (depth) and bounds (rectangle).
+      - MAX_OBJECTS = 5: Maximum objects per node before splitting.
+      - MAX_LEVELS = 5: Maximum tree depth.
+      - nodes[4]: Fixed array of 4 child pointers (initially nullptr).
+
+   c) clear() method:
+      - Recursively deletes all child nodes (post-order traversal).
+      - Clears the objects vector at each node.
+      - Called by destructor and before rebuilding.
+
+   d) split() method:
+      - Divides the node's rectangle into 4 equal quadrants.
+      - Creates 4 new QuadTree child nodes.
+      - Node indices: 0=NE (top-right), 1=NW (top-left), 2=SW (bottom-left),
+        3=SE (bottom-right).
+
+   e) getIndex() method:
+      - Calculates vertical and horizontal midpoints.
+      - Determines if the query rectangle fits ENTIRELY in one quadrant.
+      - Returns the quadrant index (0-3), or -1 if it straddles midpoints.
+
+   f) insert() method:
+      - If children exist, try to insert into the correct child.
+      - If no children or object straddles quadrants, store at this node.
+      - If objects exceed MAX_OBJECTS and level < MAX_LEVELS:
+        * Call split() to create children.
+        * Redistribute existing objects: iterate through objects, try to
+          move each to a child. If it fits a child (getIndex != -1),
+          remove from current node and insert into child.
+
+   g) retrieve() method:
+      - Given a query rectangle, returns all objects that are potential
+        collision candidates.
+      - If query fits in one child, recurse into only that child.
+      - If query spans quadrants, recurse into all children whose bounds
+        intersect the query.
+      - Append this node's own objects to the result.
+
+   USAGE IN GAME (in main.cpp, integrated by Person 1):
+   - Every frame, a fresh QuadTree is constructed covering (0, 0, 3000, 2000).
+   - All alive enemies' bounds are inserted.
+   - For collision queries (melee attacks, bullet hits), retrieve() is called
+     with the attack/bullet bounds to get nearby enemy candidates.
+   - Fine collision testing is then done only on the retrieved candidates.
+
+2. QUADTREE OPTIMIZATIONS AND DOCUMENTATION — FOR DS SUBMISSION:
+   - Write detailed comments in QuadTree.h and QuadTree.cpp explaining
+     every method, its time complexity, and its role in the game.
+   - Add complexity analysis comments:
+     * insert():     O(log n) average, O(n) worst case
+     * retrieve():   O(log n + k) where k = candidates
+     * split():      O(1) — creates 4 nodes
+     * getIndex():   O(1) — 4 comparisons
+     * clear():      O(n) — visits all nodes
+     * Per-frame cost: O(n log n) for n enemy insertions + queries
+   - Compare QuadTree approach vs. brute-force:
+     * Without QuadTree: O(n × m) for n enemies × m queries per frame.
+     * With QuadTree: O(n log n) + O(m × (log n + k)) per frame.
+     * For 20 enemies: Brute force checks ~20 per query. QuadTree checks ~4.
+   - Prepare a section in the DS course submission report explaining why
+     QuadTree was chosen over alternatives (spatial hash grid, BSP tree).
+
+3. HUD RENDERING — EXISTING:
+   - Score Text:
+     * sf::Text at position (10, 10) in screen space.
+     * White text, 24pt, displays "Score: X".
+   - Health Bar:
+     * 10 segments, each 28×15 pixels, with 2px visual gaps (30px stride).
+     * Positioned at (WINDOW_WIDTH/2 - 150, WINDOW_HEIGHT - 50).
+     * Background: Dark gray (40, 40, 40, 200) with black 1px outline.
+     * Fill: Crimson red (220, 20, 60) proportional to health.
+     * Each segment represents 10 HP. Partial fill for fractional values.
+   - Stamina Bar:
+     * 5 segments, each 28×10 pixels, with 2px visual gaps.
+     * Positioned at (WINDOW_WIDTH/2 - 150, WINDOW_HEIGHT - 30).
+     * Background: Same dark gray.
+     * Fill: Dodger blue (30, 144, 255) proportional to stamina.
+     * Each segment represents 10 stamina.
+   - Uses window.setView(window.getDefaultView()) to switch from world
+     space to screen space before drawing HUD elements.
+
+4. HUD ENHANCEMENTS — PLANNED UPDATE:
+   - Add a TIMER display showing elapsed game time (mm:ss format) at the
+     top-center of the screen. This helps the player feel the escalating
+     pressure.
+   - Add a LEVEL INDICATOR showing the current difficulty level at the
+     top-right corner.
+   - Add a KEY INDICATOR: When the key is collected, display a small key
+     icon in the HUD. Before collection, show an empty slot or "?" symbol.
+   - Add a WAVE/THREAT INDICATOR: A visual element (like a pulsing red
+     border or text) that intensifies as the spawn rate increases, warning
+     the player that enemies are getting more aggressive.
+   - Add a LEVER STATUS indicator if the player hasn't pulled the lever yet.
+   - Polish the health and stamina bars with smooth transition animations
+     (e.g., the bar fill smoothly decreases rather than jumping instantly).
+
+5. AUDIO SYSTEM MANAGEMENT — EXISTING:
+   - Background Music:
+     * sf::Music loads and streams "assets/sound/music.wav".
+     * Loop enabled, volume 15%.
+     * Plays from game start to death.
+   - Slash Sound Effect:
+     * sf::SoundBuffer loads "assets/sound/slash.wav".
+     * sf::Sound plays the buffer on each melee attack at 70% volume.
+   - Game Over Music:
+     * sf::Music loads "assets/sound/game_over.wav".
+     * Plays once when player dies (loop disabled).
+     * Volume 25%.
+     * hasPlayedGameOver boolean prevents replaying.
+
+6. AUDIO ENHANCEMENTS — PLANNED:
+   - Add a sound effect for key pickup (a chime or collect sound).
+   - Add a sound effect for lever activation (a mechanical click/clank).
+   - Add an enemy death sound effect (a brief crumble or dissipation).
+   - Add a sound effect for the escape door opening.
+   - Consider separate background music tracks per level or a music
+     intensity increase as enemies escalate.
+
+7. BULLET SYSTEM MAINTENANCE — EXISTING (Inactive):
+   - Own Bullet.h and Bullet.cpp files.
+   - These files define the Bullet class (projectile with velocity, lifetime,
+     and collision bounds).
+   - The shooting mechanic is DISABLED — no bullets are created in gameplay.
+   - Maintain these files in case shooting is re-enabled in the future.
+   - Keep the QuadTree-based bullet-enemy collision code in main.cpp
+     functional (it currently iterates bullets and uses QuadTree retrieve).
+
+8. PROJECT DOCUMENTATION:
+   - Create and maintain the three documentation text files:
+     * technology_and_structure.txt (technologies, file structure, DS concepts)
+     * features_and_workflow.txt (features, game workflow, system workflow)
+     * roles_and_work_distribution.txt (this file)
+   - Write the DS-II course submission report section on data structures.
+   - Maintain Map_Obstacles_Info.txt in coordination with Person 4.
+   - Create a README.md for the repository explaining how to build and run.
+
+--------------------------------------------------------------------------------
+FILES OWNED BY PERSON 5:
+--------------------------------------------------------------------------------
+   PRIMARY:  QuadTree.h, QuadTree.cpp
+   SECONDARY: Bullet.h, Bullet.cpp (maintenance only, inactive feature)
+   HUD CODE:  HUD rendering section in main.cpp (coordinate with Person 1)
+   AUDIO:    Audio initialization and playback code in main.cpp
+   DOCS:     technology_and_structure.txt, features_and_workflow.txt,
+             roles_and_work_distribution.txt, Map_Obstacles_Info.txt
+
+--------------------------------------------------------------------------------
+DEPENDENCIES ON OTHER MEMBERS:
+--------------------------------------------------------------------------------
+   - Person 1 creates the QuadTree each frame and calls insert/retrieve.
+   - Person 2 provides health/stamina values for HUD rendering.
+   - Person 3's enemies are inserted into the QuadTree.
+   - Person 4 may provide key-collected status for HUD indicator.
+
+
+================================================================================
+INTEGRATION AND COORDINATION PLAN
+================================================================================
+
+PHASE 1 — INDEPENDENT DEVELOPMENT (Week 1-2):
+   Each person works on their owned files independently:
+   - Person 1: Game state machine, menu system, escalation timer logic.
+   - Person 2: Player polish, debug toggle, potential death animation.
+   - Person 3: Level scaling system, enemy type distribution adjustment.
+   - Person 4: Key system implementation, new assets.
+   - Person 5: HUD enhancements, audio additions, documentation.
+
+PHASE 2 — INTEGRATION (Week 3):
+   - Person 1 integrates changes from Persons 2-5 into main.cpp.
+   - Person 1 wires up: level selection → enemy scaling, key check →
+     escape logic, timer → HUD display.
+   - All members test together for bugs and collision issues.
+
+PHASE 3 — POLISH AND SUBMISSION (Week 4):
+   - Remove ALL debug rendering (red obstacles, green/blue collision boxes).
+   - Final audio balancing.
+   - Final documentation review.
+   - DS-II course report finalized by Person 5.
+   - Build the Release configuration for submission.
+
+
+================================================================================
+SUMMARY TABLE
+================================================================================
+
+ Person | Role                         | Primary Files
+ -------|------------------------------|--------------------------------------
+   1    | Game Architecture &          | main.cpp
+        | Main Loop Engineer           | (+ new GameState enum)
+ -------|------------------------------|--------------------------------------
+   2    | Player Systems Engineer      | Player.h, Player.cpp
+        |                              | assets/Hero1/*
+ -------|------------------------------|--------------------------------------
+   3    | Enemy Systems Engineer       | Enemy.h, Enemy.cpp
+        |                              | assets/enemies/*, assets/enemy.png
+ -------|------------------------------|--------------------------------------
+   4    | Map & Environment Engineer   | Map.h, Map.cpp
+        |                              | assets/map.jpg, assets/objects/*
+ -------|------------------------------|--------------------------------------
+   5    | Data Structures & UI         | QuadTree.h, QuadTree.cpp
+        | Engineer                     | Bullet.h, Bullet.cpp
+        |                              | HUD code, Audio code, Documentation
+
+
+================================================================================
+END OF DOCUMENT
+================================================================================

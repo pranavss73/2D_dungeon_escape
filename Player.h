@@ -25,6 +25,7 @@ public:
     void setPosition(float x, float y);
     sf::Vector2f getPosition() const;
     sf::FloatRect getGlobalBounds() const;
+    void reset(float x, float y);
 
 private:
     sf::Texture idleTextures[4];

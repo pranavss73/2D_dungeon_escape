@@ -1,0 +1,882 @@
+================================================================================
+      DUNGEON ESCAPE RPG - TECHNOLOGY, FILE STRUCTURE & DATA STRUCTURES
+================================================================================
+                        (For DS-II Course Submission)
+================================================================================
+
+
+================================================================================
+SECTION 1: TECHNOLOGIES AND COMPONENTS USED
+================================================================================
+
+--------------------------------------------------------------------------------
+1.1  Programming Language — C++ (C++17 Standard)
+--------------------------------------------------------------------------------
+   The entire game logic, rendering pipeline, and data structure implementations
+   are written in C++. C++ was chosen because:
+
+   - It provides low-level memory control (needed for real-time game loops).
+   - It supports Object-Oriented Programming (classes for Player, Enemy, Map,
+     Bullet, QuadTree).
+   - Direct pointer and dynamic memory management (new/delete) is used for
+     enemy and bullet pools.
+   - It is the native language supported by SFML.
+   - Standard Template Library (STL) containers like std::vector are used
+     extensively for dynamic collections.
+
+   Key C++ features used in this project:
+   - Classes and Objects (Player, Enemy, Map, QuadTree, Bullet)
+   - Enumerations (EnemyState enum with SPAWNING, ALIVE, ATTACKING, HURT,
+     DYING, DEAD)
+   - Dynamic Memory Allocation (new/delete for enemies and bullets)
+   - Pointers and References (std::vector<Enemy*>, const Map& references)
+   - Operator Overloading (sf::Vector2f arithmetic like direction * speed)
+   - Standard Library (std::vector, std::sqrt, std::pow, std::rand, std::srand,
+     std::abs, std::min, std::string, std::to_string)
+   - Include Guards (#ifndef / #define / #endif for header files)
+
+--------------------------------------------------------------------------------
+1.2  Graphics & Multimedia Library — SFML 2.5.1
+     (Simple and Fast Multimedia Library)
+--------------------------------------------------------------------------------
+   SFML is a cross-platform C++ library that provides a simple interface to
+   various multimedia components. This project uses four of its five modules:
+
+   a) SFML Graphics Module (sfml-graphics):
+      - sf::RenderWindow     — Creates and manages the game window (1280x720).
+      - sf::Texture           — Loads image files (.png, .jpg) into GPU memory.
+      - sf::Sprite            — Displays textures on screen with position,
+                                scale, rotation, and texture-rect cropping
+                                for sprite sheet animation.
+      - sf::RectangleShape    — Used for health bar chunks, stamina bar chunks,
+                                debug collision boxes, bullet shapes, and
+                                interaction prompt backgrounds.
+      - sf::CircleShape       — Used to draw elliptical shadows beneath
+                                characters and props (scaled to squash into
+                                perspective ellipses).
+      - sf::View              — Camera system that follows the player around
+                                the map. The view scrolls to center on the
+                                player position every frame, and is also
+                                temporarily switched to default for HUD overlay.
+      - sf::FloatRect         — Axis-Aligned Bounding Box (AABB) rectangle
+                                used for ALL collision detection in the game
+                                (obstacles, attacks, damage, escape door, lever
+                                proximity, QuadTree bounds).
+      - sf::IntRect           — Used for cropping sprite sheet frames during
+                                animation (setTextureRect).
+      - sf::Text              — Renders text strings on screen (score display,
+                                escape message, game over message, lever
+                                interaction prompt).
+      - sf::Font              — Loads TrueType font files (arial.ttf).
+      - sf::Color             — Defines colors with RGBA values (used for
+                                health bar crimson, stamina dodger blue,
+                                shadow alpha, debug overlays).
+      - sf::VideoMode         — Specifies the window resolution.
+      - sf::Event             — Handles window and input events (close, mouse).
+
+   b) SFML Window Module (sfml-window):
+      - sf::Keyboard          — Polls real-time keyboard state for movement
+                                (W/A/S/D), attack (Space), interaction (E).
+      - sf::Mouse             — Gets mouse position relative to the window
+                                for cursor tracking (aim direction).
+
+   c) SFML Audio Module (sfml-audio):
+      - sf::Music             — Streams large audio files for background music
+                                (music.wav) and game over music
+                                (game_over.wav). Uses streaming so the entire
+                                file is NOT loaded into memory at once.
+      - sf::SoundBuffer       — Loads short audio clips into memory entirely
+                                (slash.wav for melee attacks).
+      - sf::Sound             — Plays short audio from a SoundBuffer with
+                                volume control.
+
+   d) SFML System Module (sfml-system):
+      - sf::Clock             — High-resolution timer used to calculate
+                                delta-time (time between frames) for
+                                frame-rate independent movement and animation.
+      - sf::Vector2f          — 2D float vector used everywhere for positions,
+                                velocities, directions.
+      - sf::Vector2i          — 2D integer vector for mouse pixel positions.
+      - sf::Vector2u          — 2D unsigned vector for texture sizes.
+
+   SFML Libraries Linked (from project2.vcxproj):
+   - Debug:   sfml-graphics-d.lib, sfml-window-d.lib, sfml-system-d.lib,
+              sfml-audio-d.lib, sfml-network-d.lib
+   - Release: sfml-graphics.lib, sfml-window.lib, sfml-system.lib,
+              sfml-audio.lib, sfml-network.lib
+
+   SFML DLLs are automatically copied to the output directory via a
+   post-build xcopy command defined in the .vcxproj file.
+
+--------------------------------------------------------------------------------
+1.3  Build System — Microsoft Visual Studio 2022 (v143 Toolset)
+--------------------------------------------------------------------------------
+   - The project is built using Visual Studio with the MSVC v143 compiler.
+   - Project file: project2.vcxproj (MSBuild XML format).
+   - Solution file: project2.sln
+   - Platform: x64 (64-bit Windows)
+   - Windows SDK: 10.0
+   - Character Set: Unicode
+   - Configurations: Debug and Release
+   - SFML headers are included from: ..\dependencies\SFML\include
+   - SFML libraries are linked from:  ..\dependencies\SFML\lib
+   - SFML DLLs are located at:        ..\dependencies\SFML\bin
+
+--------------------------------------------------------------------------------
+1.4  Python Utility Scripts (Development Tools Only)
+--------------------------------------------------------------------------------
+   Several Python scripts were used DURING DEVELOPMENT for map analysis and
+   collision rectangle generation. These are NOT part of the running game:
+
+   - analyze_map.py    — Analyses the map image for visual features.
+   - debug_map.py      — Generates a debug grid overlay on the map image.
+   - gen_collision.py  — Auto-generates obstacle FloatRect coordinates by
+                         scanning pixel colors in the map image.
+   - map_ascii.py      — Converts the map image into an ASCII art representation
+                         for quick visual reference.
+   - map_colors.py     — Extracts and lists unique colors used in the map.
+
+   These scripts output text files (ascii_out.txt, real_ascii.txt,
+   map_ascii.txt, map_rects.txt, etc.) and images (map_debug_grid.png)
+   used as reference during development.
+
+--------------------------------------------------------------------------------
+1.5  Asset Formats
+--------------------------------------------------------------------------------
+   - Sprite Sheets:  PNG format (lossless, supports transparency/alpha).
+                     Each sprite sheet contains multiple frames arranged in
+                     a grid (columns x rows). Animation works by advancing
+                     the texture rectangle across columns.
+   - Map Image:      JPG format (map.jpg, ~1.3 MB, 2239x1220 pixels).
+   - Font:           TrueType Font (arial.ttf) for all text rendering.
+   - Audio:          WAV format for all sounds (uncompressed PCM audio).
+                     music.wav (~40 MB background loop), slash.wav (~76 KB
+                     attack effect), game_over.wav (~617 KB death music).
+
+--------------------------------------------------------------------------------
+1.6  Version Control — Git
+--------------------------------------------------------------------------------
+   - A .git directory exists within the project2/project2/ source folder.
+   - A .gitignore file (428 bytes) filters out build artifacts, IDE files,
+     and binary outputs from version tracking.
+
+--------------------------------------------------------------------------------
+1.7  Planned Updates — Additional Technologies/Components
+--------------------------------------------------------------------------------
+   The following components will be added for the planned updates:
+
+   a) Level Selection Menu System:
+      - Additional sf::Text and sf::RectangleShape elements for a menu UI.
+      - Game state machine expanded with MENU, PLAYING, GAME_OVER, ESCAPED
+        states.
+
+   b) Key Pickup System:
+      - New sf::Texture and sf::Sprite for the key object.
+      - Boolean flag tracking whether the player has collected the key.
+      - The escape door will require the key to be collected before it opens.
+
+   c) Escalating Difficulty Timer:
+      - sf::Clock or accumulated delta-time tracking total elapsed game time.
+      - The spawn rate and enemy count will increase over time based on this
+        timer.
+
+   d) Level-Based Enemy Scaling:
+      - Enemy HP, speed, and damage will be multiplied by a factor derived
+        from the selected level number (1, 2, or 3).
+
+
+================================================================================
+SECTION 2: FILE STRUCTURE IN DETAIL
+================================================================================
+
+project2/                              [ROOT SOLUTION FOLDER]
+|
+|-- project2.sln                       [Visual Studio Solution File]
+|   What it does: The top-level solution file that Visual Studio opens. It
+|   references the project2.vcxproj and defines solution-level build
+|   configurations (Debug|x64, Release|x64). This is the entry point for
+|   opening the project in Visual Studio.
+|
+|-- .vs/                               [Visual Studio IDE Settings - Auto-generated]
+|   What it does: Stores Visual Studio's local user settings like window
+|   layouts, breakpoints, and IntelliSense caches. This folder is NOT
+|   committed to version control and is regenerated automatically.
+|
+|-- dependencies/                      [External Library Dependencies]
+|   |-- SFML/                          [SFML 2.5.1 Library Installation]
+|       |-- include/                   [SFML Header Files]
+|       |   Contains all SFML C++ headers (Graphics.hpp, Window.hpp, etc.)
+|       |   that our source code #includes.
+|       |
+|       |-- lib/                       [SFML Static/Import Libraries]
+|       |   Contains .lib files linked during compilation
+|       |   (sfml-graphics-d.lib, sfml-window-d.lib, etc.)
+|       |
+|       |-- bin/                       [SFML Dynamic Link Libraries]
+|           Contains .dll files copied to the output directory post-build
+|           (sfml-graphics-d-2.dll, openal32.dll, etc.) These are required
+|           at runtime for the game to execute.
+|
+|-- x64/                               [Build Output (Solution-Level)]
+|   Contains intermediate build files at the solution level.
+|
+|-- project2/                          [MAIN SOURCE CODE FOLDER]
+    |
+    |-- .git/                          [Git Repository Data]
+    |   What it does: Stores all version control history, branches, and
+    |   configuration for the project source code.
+    |
+    |-- .gitignore                     [Git Ignore Rules]
+    |   What it does: Specifies which files/folders Git should NOT track
+    |   (e.g., x64/ build output, .vs/ IDE settings, *.obj files).
+    |
+    |-- project2.vcxproj               [Visual Studio Project File]
+    |   What it does: The MSBuild project configuration XML file. It defines:
+    |   - Which .cpp and .h files are compiled (main.cpp, Player.cpp,
+    |     Enemy.cpp, Bullet.cpp, Map.cpp, QuadTree.cpp and their headers).
+    |   - Compiler settings (C++17, Warning Level 3, SDL checks).
+    |   - Include paths for SFML headers (..\dependencies\SFML\include).
+    |   - Linker paths and SFML libraries to link.
+    |   - Post-build script to copy SFML DLLs to the output directory.
+    |   - Debug vs Release configurations.
+    |
+    |-- project2.vcxproj.filters       [VS Project Filters]
+    |   What it does: Organizes source files into logical "folders" within
+    |   the Visual Studio Solution Explorer (Source Files, Header Files).
+    |   This is purely for IDE organization and does not affect compilation.
+    |
+    |-- project2.vcxproj.user          [VS User-Specific Settings]
+    |   What it does: Stores per-user settings like the debugging working
+    |   directory. Not shared across team members.
+    |
+    |=======================================================================
+    |  CORE SOURCE FILES (C++ - The actual game code)
+    |=======================================================================
+    |
+    |-- main.cpp                       [MAIN GAME ENTRY POINT - 432 lines]
+    |   What it does: Contains the main() function — the heart of the game.
+    |   Responsibilities:
+    |   - Creates the SFML RenderWindow (1280x720, 60 FPS cap).
+    |   - Seeds the random number generator (std::srand).
+    |   - Initializes all game objects: Map, Player, Enemies, Bullets.
+    |   - Loads fonts, background music, slash sound, game over music.
+    |   - Defines game constants (WINDOW_WIDTH, WINDOW_HEIGHT,
+    |     INITIAL_ENEMY_COUNT = 10, MAX_ENEMIES_ON_SCREEN = 20).
+    |   - Contains the spawnEnemy() helper function that safely spawns
+    |     enemies at random positions (avoiding walls and player proximity).
+    |   - Runs the MAIN GAME LOOP which every frame:
+    |       1. Calculates delta-time for frame-rate independence.
+    |       2. Polls events (window close, mouse click, attack input).
+    |       3. Checks game-over and escape conditions (skips update if true).
+    |       4. Runs the enemy spawner timer (spawns new enemy every 3 sec).
+    |       5. Updates player position, animation, and aim.
+    |       6. Updates camera view to follow the player.
+    |       7. Rebuilds the QuadTree from scratch with all active enemies.
+    |       8. Updates enemy AI (chase player, attack, hurt, die).
+    |       9. Handles melee attack collision (Space key -> attack bounds
+    |          checked against enemy bounds via QuadTree).
+    |       10. Checks escape door collision (player vs. door bounds).
+    |       11. Processes damage to player (from enemies and spike props).
+    |       12. Checks for player death (health <= 0).
+    |       13. Renders: Map -> Enemies -> Player -> Lever interaction UI.
+    |       14. Switches to HUD overlay view for Score, Health Bar (10
+    |           crimson segments), Stamina Bar (5 blue segments).
+    |       15. Displays the frame.
+    |   - Cleans up all dynamically allocated memory on exit.
+    |
+    |-- Player.h                       [PLAYER CLASS HEADER - 62 lines]
+    |   What it does: Declares the Player class interface.
+    |   Public Interface:
+    |   - loadTextures()       — Loads all 12 player sprite sheets (4 idle,
+    |                            4 run, 4 attack directions).
+    |   - update()             — Handles movement (WASD), wall collision,
+    |                            stamina regen, damage cooldown, animation.
+    |   - draw()               — Renders shadow ellipse + sprite + debug box.
+    |   - attack()             — Triggers melee attack (costs 10 stamina).
+    |   - getAttackBounds()    — Returns directional attack hitbox.
+    |   - getHealth/getStamina — Resource bar getters.
+    |   - takeDamage()         — Reduces health with 1-sec invincibility.
+    |   - drainStamina()       — Spends stamina for attacks.
+    |   Private Members:
+    |   - 12 textures (4 idle + 4 run + 4 attack, one per direction).
+    |   - Animation state (frame index, timer, speed, direction 0-3).
+    |   - Combat state (isAttacking, attackTimer, attackDuration).
+    |   - Resources (health 100, stamina 50, damageCooldown iFrames).
+    |   - Physics (velocity, speed = 200 px/sec).
+    |
+    |-- Player.cpp                     [PLAYER CLASS IMPLEMENTATION - 256 lines]
+    |   What it does: Implements all Player class methods.
+    |   Key implementation details:
+    |   - Movement uses separated X/Y axis collision checking — moves on X
+    |     axis first, checks all obstacles, reverts if collision; then moves
+    |     on Y axis, checks again. This prevents diagonal wall-phasing.
+    |   - Collision bounds are REDUCED to a tiny rectangle at the player's
+    |     feet (15% width, 12% height at 70% down) to allow the character
+    |     to visually overlap walls naturally (top-down perspective illusion).
+    |   - Attack bounds extend 80 pixels in the facing direction from the
+    |     player's full sprite bounds, creating a directional melee hitbox.
+    |   - Stamina regenerates at 5.0/sec while idle, 1.5/sec while running.
+    |   - Damage invincibility lasts 1 full second after each hit.
+    |   - Animation cycles through 8 columns of sprite sheet frames.
+    |
+    |-- Enemy.h                        [ENEMY CLASS HEADER - 77 lines]
+    |   What it does: Declares the Enemy class and the EnemyState enum.
+    |   EnemyState Enum Values:
+    |   - SPAWNING   — Playing spawn-in smoke effect, cannot move or attack.
+    |   - ALIVE      — Normal state, chasing the player.
+    |   - ATTACKING  — Playing attack animation (advanced enemies only).
+    |   - HURT       — Taking knockback and playing hurt animation.
+    |   - DYING      — Playing death smoke effect, about to be removed.
+    |   - DEAD       — Fully dead, skipped in all logic.
+    |   Enemy Types (determined by 'type' integer):
+    |   - Type 0: Basic skeleton (9x4 sprite sheet, 1 HP, simple chase AI).
+    |   - Type 1: Enemy2 — Advanced (8x4 sheets for run/attack/hurt, 2 HP).
+    |   - Type 2: Enemy3 — Advanced (8x4 sheets, 3 HP).
+    |   - Type 3: Enemy4 — Advanced (8x4 sheets, 4 HP).
+    |
+    |-- Enemy.cpp                      [ENEMY CLASS IMPLEMENTATION - 424 lines]
+    |   What it does: Implements all Enemy behaviors and AI.
+    |   Key implementation details:
+    |   - load() handles Type 0 enemies (simple skeleton sprite sheet).
+    |   - loadAdvancedEnemy() handles Types 1-3 with separate run, attack,
+    |     and hurt sprite sheets plus baked-in shadows.
+    |   - update() contains a STATE MACHINE with transitions:
+    |       SPAWNING -> ALIVE (after spawn effect finishes)
+    |       ALIVE -> ATTACKING (when within 60px of player, types 1+)
+    |       ATTACKING -> ALIVE (after attack animation completes)
+    |       ALIVE/ATTACKING -> HURT (when takeDamage called, HP > 0)
+    |       HURT -> ALIVE (after hurt animation completes)
+    |       ANY -> DYING (when HP drops to 0)
+    |       DYING -> DEAD (after death effect finishes)
+    |   - AI Chase Logic: If distance to player is between 0.5 and 800
+    |     pixels, enemy calculates a normalized direction vector and moves
+    |     toward the player at 100 px/sec, with per-axis wall collision.
+    |   - Knockback: On taking damage, enemy receives a velocity impulse
+    |     of 250 px/sec away from the damage source, decaying via friction.
+    |   - Collision bounds for advanced enemies are reduced to a tiny
+    |     16% width, 12% height footprint at center-feet to let them
+    |     navigate narrow corridors without getting stuck.
+    |   - Directional animation uses 4 rows (up/down/left/right).
+    |   - Spawn/death effects use a shared sprite sheet
+    |     (enemy_die_spawn.png) with 11 frames across 2 rows.
+    |
+    |-- Map.h                          [MAP CLASS HEADER - 50 lines]
+    |   What it does: Declares the Map class which manages the dungeon
+    |   environment.
+    |   Public Interface:
+    |   - load()               — Loads map image and hard-codes all obstacle
+    |                            rectangles, props, lever, and block.
+    |   - draw()               — Renders map, props, lever, block, and debug
+    |                            collision overlays.
+    |   - getSpawnPoint()      — Returns player's starting position.
+    |   - getEscapeDoorBounds()— Returns the escape door's AABB rectangle.
+    |   - getObstacles()       — Returns the vector of all collision rects.
+    |   - getProps()           — Returns the vector of prop sprites.
+    |   - isLeverPulled()      — Checks if the lever puzzle is solved.
+    |   - triggerLever()       — Activates the lever, removes blockade.
+    |   - getLeverBounds()     — Returns lever sprite's bounding box.
+    |   Private Members:
+    |   - Map texture and sprite for the dungeon background image.
+    |   - std::vector<sf::FloatRect> obstacles — all wall collision rects.
+    |   - Prop sprites (spikes x2, chest x1) and their textures.
+    |   - Lever puzzle sprites (lever, block) with an invisible blockade
+    |     rectangle that is added to obstacles and removed when lever is
+    |     pulled.
+    |
+    |-- Map.cpp                        [MAP CLASS IMPLEMENTATION - 188 lines]
+    |   What it does: Implements map loading, rendering, and the lever puzzle.
+    |   Key implementation details:
+    |   - load() hardcodes 16 primary wall rectangles as sf::FloatRect
+    |     values covering the dungeon's boundary walls (top, bottom, left,
+    |     right) and all internal wall structures/pillars.
+    |   - The obstacle coordinates were determined using Python analysis
+    |     scripts on the map image and manual pixel coordinate inspection.
+    |   - Props are loaded and positioned: 2 spike traps (damage-dealing)
+    |     and 1 decorative chest, each with manual scale and position.
+    |   - The lever sprite and block sprite are loaded and positioned.
+    |   - An invisible blockade rectangle (1372, 590, 867, 565) is pushed
+    |     into the obstacles vector, preventing passage to the escape area.
+    |   - triggerLever() flips the lever sprite vertically (scale Y negated),
+    |     and iterates through the obstacles vector to find and erase the
+    |     invisible blockade, opening the path to the escape door.
+    |   - draw() renders obstacles as translucent red debug rectangles (for
+    |     development), draws shadow beneath the chest, and conditionally
+    |     draws the block sprite only when the lever hasn't been pulled.
+    |
+    |-- QuadTree.h                     [QUADTREE HEADER - 38 lines]
+    |   What it does: Declares the QuadTree spatial partitioning data
+    |   structure and the QuadTreeData struct.
+    |   - QuadTreeData struct holds an sf::FloatRect (bounds) and an int
+    |     (id) representing the enemy's index in the enemies vector.
+    |   - QuadTree class manages recursive spatial subdivision with
+    |     configurable MAX_OBJECTS (5) and MAX_LEVELS (5).
+    |   - Uses a fixed-size array of 4 child pointers (nodes[4]) for
+    |     the four quadrants.
+    |
+    |-- QuadTree.cpp                   [QUADTREE IMPLEMENTATION - 113 lines]
+    |   What it does: Implements the QuadTree spatial data structure.
+    |   Full details in SECTION 3 below.
+    |
+    |-- Bullet.h                       [BULLET CLASS HEADER - 28 lines]
+    |   What it does: Declares the Bullet class for projectile objects.
+    |   Note: The shooting mechanic is currently disabled in the game.
+    |   The Bullet class remains in the codebase as infrastructure but
+    |   no bullets are created during gameplay. Only melee combat is active.
+    |   Members: RectangleShape body, velocity vector, speed (600 px/sec),
+    |   active flag, lifetime timer (max 3 seconds).
+    |
+    |-- Bullet.cpp                     [BULLET CLASS IMPLEMENTATION - 60 lines]
+    |   What it does: Implements bullet movement, rendering, and lifetime.
+    |   Note: Not actively used in current gameplay (melee-only combat).
+    |   The update logic moves the bullet along its velocity vector each
+    |   frame and deactivates it after maxLifetime seconds.
+    |
+    |=======================================================================
+    |  ASSET FILES (All loaded at runtime by the game)
+    |=======================================================================
+    |
+    |-- assets/
+    |   |
+    |   |-- map.jpg                    [DUNGEON MAP BACKGROUND - 1.3 MB]
+    |   |   The full dungeon map image (2239x1220 pixels). This is the
+    |   |   entire playable world rendered as a single background image.
+    |   |   The camera scrolls across this image following the player.
+    |   |
+    |   |-- map01.png                  [ALTERNATE MAP IMAGE - 6.3 MB]
+    |   |   A higher-resolution version of the map (PNG format).
+    |   |
+    |   |-- map_analysis.png           [MAP ANALYSIS OVERLAY - 3.2 MB]
+    |   |   A debug overlay image generated by Python scripts showing
+    |   |   detected wall regions.
+    |   |
+    |   |-- arial.ttf                  [FONT FILE - 160 KB]
+    |   |   TrueType font used for all text rendering in the game
+    |   |   (score, game over text, interaction prompts).
+    |   |
+    |   |-- enemy.png                  [TYPE 0 ENEMY SPRITE SHEET - 24 KB]
+    |   |   Basic skeleton enemy: 9 columns x 4 rows. Each row represents
+    |   |   a direction (up, left, down, right). Animation cycles through
+    |   |   columns within a row.
+    |   |
+    |   |-- soldier.png, soldier1.png, soldier2.png  [UNUSED ASSETS]
+    |   |   Extra sprite sheets kept for potential future use.
+    |   |
+    |   |-- Hero1/                     [PLAYER CHARACTER SPRITES]
+    |   |   |-- IDLE/
+    |   |   |   |-- idle_up.png        [8 frames, facing up]
+    |   |   |   |-- idle_down.png      [8 frames, facing down]
+    |   |   |   |-- idle_right.png     [8 frames, facing right]
+    |   |   |   |-- idle_left.png      [8 frames, facing left]
+    |   |   |
+    |   |   |-- RUN/
+    |   |   |   |-- run_up.png         [8 frames, running up]
+    |   |   |   |-- run_down.png       [8 frames, running down]
+    |   |   |   |-- run_right.png      [8 frames, running right]
+    |   |   |   |-- run_left.png       [8 frames, running left]
+    |   |   |
+    |   |   |-- ATTACK_1_IDLE/
+    |   |   |   |-- attack1_up.png     [8 frames, attacking upward]
+    |   |   |   |-- attack1_down.png   [8 frames, attacking downward]
+    |   |   |   |-- attack1_right.png  [8 frames, attacking right]
+    |   |   |   |-- attack1_left.png   [8 frames, attacking left]
+    |   |   |
+    |   |   |-- ATTACK_2_RUN/          [UNUSED — Secondary attack set]
+    |   |
+    |   |-- enemies/                   [ADVANCED ENEMY SPRITE SHEETS]
+    |   |   |-- enemy2_run_with_shadow.png     [Type 1: 8x4 run animation]
+    |   |   |-- enemy2_attack_with_shadow.png  [Type 1: 8x4 attack anim]
+    |   |   |-- enemy2_hurt_with_shadow.png    [Type 1: 6x4 hurt anim]
+    |   |   |-- enemy3_run_with_shadow.png     [Type 2: 8x4 run animation]
+    |   |   |-- enemy3_attack_with_shadow.png  [Type 2: 8x4 attack anim]
+    |   |   |-- enemy3_hurt_with_shadow.png    [Type 2: 6x4 hurt anim]
+    |   |   |-- enemy4_run_with_shadow.png     [Type 3: 8x4 run animation]
+    |   |   |-- enemy4_attack_with_shadow.png  [Type 3: 8x4 attack anim]
+    |   |   |-- enemy4_hurt_with_shadow.png    [Type 3: 6x4 hurt anim]
+    |   |   Each advanced enemy has 3 separate sheets for different states.
+    |   |   The shadows are pre-baked into the sprite images.
+    |   |
+    |   |-- effect/                    [VISUAL EFFECT SPRITES]
+    |   |   |-- enemy_die_spawn.png    [11 columns x 2 rows - 4.7 KB]
+    |   |       Top row (Y=0):   Death smoke effect (11 frames)
+    |   |       Bottom row (Y=65): Spawn smoke effect (11 frames)
+    |   |       Shared by ALL enemy types for spawn-in and death animations.
+    |   |
+    |   |-- objects/                   [INTERACTIVE OBJECT SPRITES]
+    |   |   |-- spikes.png             [Spike trap image - 88 KB]
+    |   |   |-- chest.png              [Treasure chest image - 125 KB]
+    |   |   |-- lever.png              [Lever switch image - 7 KB]
+    |   |   |-- block.png              [Stone blockade image - 147 KB]
+    |   |   |-- spawner.png            [Spawner portal image - 7 KB]
+    |   |
+    |   |-- sound/                     [AUDIO FILES]
+    |       |-- music.wav              [Background music loop - 40 MB]
+    |       |-- slash.wav              [Melee attack sound effect - 76 KB]
+    |       |-- game_over.wav          [Death/game-over music - 617 KB]
+    |
+    |=======================================================================
+    |  DEVELOPMENT UTILITY FILES (Not part of the running game)
+    |=======================================================================
+    |
+    |-- analyze_map.py                 [Python script - map feature analysis]
+    |-- debug_map.py                   [Python script - debug grid overlay]
+    |-- gen_collision.py               [Python script - auto-generate obstacle rects]
+    |-- map_ascii.py                   [Python script - map to ASCII art]
+    |-- map_colors.py                  [Python script - extract map colors]
+    |-- analyze_map.txt                [Output from analyze_map.py]
+    |-- analyze_sprites.txt            [Sprite dimension analysis notes]
+    |-- analyze_sprites_atk.txt        [Attack sprite analysis notes]
+    |-- ascii_out.txt                  [Raw ASCII art output]
+    |-- real_ascii.txt                 [Cleaned ASCII map representation]
+    |-- real_map_ascii.txt             [Final ASCII map version]
+    |-- map_ascii.txt                  [Intermediate ASCII map version]
+    |-- map_ascii_128.txt              [128-char width ASCII map]
+    |-- map_rects.txt                  [Generated obstacle rectangles list]
+    |-- map_debug_grid.png             [Debug grid overlay image - 4 MB]
+    |-- Map_Obstacles_Info.txt         [Documentation for obstacle editing]
+    |-- Project_Documentation.txt      [Previous project documentation]
+    |
+    |-- x64/                           [BUILD OUTPUT DIRECTORY]
+    |   Contains compiled .obj files, the final .exe, and copied SFML DLLs.
+    |
+    |-- .vs/                           [VS IDE Local Settings]
+
+
+================================================================================
+SECTION 3: DATA STRUCTURE CONCEPTS USED  (For DS-II Course Submission)
+================================================================================
+
+This section documents every data structure concept used in the project, both
+those implemented explicitly and those utilized via the C++ STL. Each entry
+explains WHAT the data structure is, WHERE it is used in the code, WHY it was
+chosen, and HOW it works in context.
+
+--------------------------------------------------------------------------------
+3.1  QUADTREE (Primary DSA Component — Explicitly Implemented)
+     Files: QuadTree.h, QuadTree.cpp
+     Used in: main.cpp (lines 243-293)
+--------------------------------------------------------------------------------
+
+   WHAT IS A QUADTREE?
+   A QuadTree is a tree-based spatial data structure that recursively subdivides
+   a 2D space into four equal quadrants (hence "quad"). Each node in the tree
+   represents a rectangular region of the game world and can hold a limited
+   number of objects. When a node exceeds its capacity, it splits into four
+   child nodes, distributing its objects among them based on their positions.
+
+   WHY USE A QUADTREE IN THIS GAME?
+   The game needs to check if attacks or other objects collide with enemies.
+   Without a QuadTree, checking every enemy against every attack is O(n*m)
+   where n = enemies and m = attack checks. With a QuadTree, we only check
+   enemies that are in the SAME spatial region as the attack, reducing the
+   average case to approximately O(n log n) for insertion and O(log n + k) for
+   each retrieval query, where k is the number of nearby objects returned.
+
+   HOW IT WORKS IN THIS PROJECT:
+
+   a) Data Structure Definition (QuadTree.h):
+      - QuadTreeData struct: Pairs an sf::FloatRect (the enemy's bounding box)
+        with an int id (the enemy's index in the enemies vector).
+      - QuadTree class contains:
+        * int level          — Current depth in the tree (root = 0).
+        * sf::FloatRect bounds — The 2D region this node covers.
+        * std::vector<QuadTreeData> objects — Objects stored at this node.
+        * QuadTree* nodes[4] — Four child pointers (NE, NW, SW, SE).
+        * MAX_OBJECTS = 5    — Split threshold per node.
+        * MAX_LEVELS = 5     — Maximum tree depth to prevent infinite recursion.
+
+   b) Construction (every frame in main.cpp, line 243):
+      The QuadTree is COMPLETELY REBUILT every frame. The root node covers the
+      entire map bounds (0, 0, 3000, 2000).
+      ```
+      QuadTree quadTree(0, mapBounds);
+      ```
+
+   c) Insertion (main.cpp, lines 246-256):
+      For each alive enemy, a QuadTreeData is created with the enemy's
+      bounding box and its vector index, then inserted:
+      ```
+      QuadTreeData data;
+      data.bounds = enemies[i]->getGlobalBounds();
+      data.id = i;
+      quadTree.insert(data);
+      ```
+      The insert() method (QuadTree.cpp, line 66):
+      1. If child nodes exist, try to place the data into the correct child
+         via getIndex().
+      2. Otherwise, add to this node's objects vector.
+      3. If objects.size() > MAX_OBJECTS and level < MAX_LEVELS, call split()
+         to create 4 child nodes, then redistribute existing objects.
+
+   d) Spatial Subdivision — split() (QuadTree.cpp, line 24):
+      Creates 4 child QuadTree nodes, each covering one quarter of the
+      parent's bounds:
+      - Node 0 (NE): top-right quarter
+      - Node 1 (NW): top-left quarter
+      - Node 2 (SW): bottom-left quarter
+      - Node 3 (SE): bottom-right quarter
+
+   e) Index Determination — getIndex() (QuadTree.cpp, line 36):
+      Determines which quadrant an object FULLY fits within. If the object
+      spans the midpoint (straddles two or more quadrants), returns -1,
+      meaning it stays stored in the parent node.
+
+   f) Retrieval — retrieve() (QuadTree.cpp, line 96):
+      Given a query rectangle, returns all objects that COULD potentially
+      collide with it:
+      1. If the query fits in one child quadrant, recurse into only that child.
+      2. If it spans multiple quadrants, recurse into every child whose bounds
+         intersect the query.
+      3. Append this node's own objects to the result.
+      This dramatically reduces the number of enemies that need fine collision
+      checking from potentially 20 down to typically 1-4.
+
+   g) Cleanup — clear() (QuadTree.cpp, line 13):
+      Recursively deletes all child nodes and clears the objects vector. Called
+      by the destructor, ensuring no memory leaks when the QuadTree is rebuilt
+      each frame.
+
+   COMPLEXITY ANALYSIS:
+   - Insertion:  O(log n) average, O(n) worst case (all objects in one region)
+   - Retrieval:  O(log n + k) where k = number of candidates returned
+   - Space:      O(n) for n objects across all nodes
+   - Rebuild:    O(n log n) per frame for n enemies (insert each one)
+
+--------------------------------------------------------------------------------
+3.2  DYNAMIC ARRAY / VECTOR (std::vector)
+     Used throughout the entire codebase
+--------------------------------------------------------------------------------
+
+   WHAT IS IT?
+   std::vector is a dynamic array that can grow and shrink at runtime. It
+   stores elements contiguously in memory (like a traditional array) but
+   automatically handles memory reallocation when capacity is exceeded.
+
+   WHERE IT IS USED:
+
+   a) std::vector<Enemy*> enemies (main.cpp, line 95):
+      - Stores pointers to all Enemy objects (alive, dying, and dead).
+      - Grows dynamically as new enemies are spawned via push_back().
+      - Iterated every frame for updates, drawing, and collision checks.
+      - Used as the main enemy pool for the entire game.
+
+   b) std::vector<Bullet*> bullets (main.cpp, line 101):
+      - Stores pointers to all active bullet projectiles.
+      - Elements are erased mid-iteration using iterator-based removal
+        (erase returns the next valid iterator).
+
+   c) std::vector<sf::FloatRect> obstacles (Map.h, line 34):
+      - Stores all wall/barrier collision rectangles for the dungeon.
+      - Populated once during Map::load() with hardcoded values.
+      - Modified at runtime when the lever is pulled (one obstacle is erased
+        using iterator-based search and erase).
+
+   d) std::vector<sf::Sprite> props (Map.h, line 38):
+      - Stores interactive/decorative prop sprites (spikes, chest).
+      - Populated once during Map::load().
+
+   e) std::vector<QuadTreeData> objects (QuadTree.h, line 32):
+      - Each QuadTree node stores its objects in a vector.
+      - Elements are erased by index during the redistribution phase when
+        a node splits (objects.erase(objects.begin() + i)).
+
+   f) std::vector<QuadTreeData> returnObjects (main.cpp, line 279):
+      - Temporary result vector filled by QuadTree::retrieve() with
+        nearby enemy candidates for collision checking.
+
+   WHY VECTORS?
+   - O(1) amortized push_back for dynamic growth.
+   - O(1) random access by index (enemies[i]).
+   - Cache-friendly contiguous memory layout for iteration.
+   - Automatic memory management (no manual realloc needed).
+
+   COMPLEXITY:
+   - Access by index: O(1)
+   - push_back:       O(1) amortized
+   - erase at index:  O(n) due to element shifting
+   - Iteration:       O(n)
+
+--------------------------------------------------------------------------------
+3.3  FIXED-SIZE ARRAY (C-Style and std:: arrays)
+--------------------------------------------------------------------------------
+
+   WHERE USED:
+   a) sf::Texture idleTextures[4] (Player.h, line 30):
+      4 textures for idle animations (up, down, right, left).
+   b) sf::Texture runTextures[4] (Player.h, line 31):
+      4 textures for running animations.
+   c) sf::Texture attackTextures[4] (Player.h, line 32):
+      4 textures for attack animations.
+   d) QuadTree* nodes[4] (QuadTree.h, line 34):
+      Fixed array of 4 child pointers for the four quadrants of the QuadTree.
+      Initialized to nullptr; populated when the node splits.
+
+   WHY FIXED ARRAYS?
+   - The number of directions (4) and quadrants (4) is constant and known
+     at compile time.
+   - No dynamic allocation overhead.
+   - Direct O(1) access by direction/quadrant index.
+
+--------------------------------------------------------------------------------
+3.4  ENUM (Enumeration) — STATE MACHINE
+     File: Enemy.h (lines 8-15)
+--------------------------------------------------------------------------------
+
+   The EnemyState enum defines six states that form a FINITE STATE MACHINE:
+
+        SPAWNING --> ALIVE <--> ATTACKING
+                       |            |
+                       v            v
+                      HURT -------->|
+                       |
+                       v
+                     DYING --> DEAD
+
+   - Each enemy has exactly ONE state at any time (stored as EnemyState state).
+   - State transitions are controlled by game events:
+     * SPAWNING -> ALIVE: Spawn animation completes.
+     * ALIVE -> ATTACKING: Player within 60px and enemy is type >= 1.
+     * ATTACKING -> ALIVE: Attack animation completes.
+     * ALIVE/ATTACKING -> HURT: takeDamage() called and HP > 0.
+     * HURT -> ALIVE: Hurt animation completes.
+     * ANY -> DYING: HP drops to 0 (kill() called).
+     * DYING -> DEAD: Death effect animation completes.
+
+   WHY A STATE MACHINE?
+   - Prevents conflicting behaviors (e.g., moving while dying).
+   - Makes AI logic clean and predictable with clear transitions.
+   - Each state has its own update behavior in Enemy::update().
+
+--------------------------------------------------------------------------------
+3.5  POINTER-BASED DYNAMIC MEMORY MANAGEMENT
+     Used in: main.cpp, QuadTree.cpp
+--------------------------------------------------------------------------------
+
+   a) Enemy Pointer Pool (main.cpp):
+      Enemies are allocated with 'new' and stored as raw pointers in the
+      enemies vector. This allows:
+      - Dynamic creation during gameplay (spawner system).
+      - Polymorphic behavior potential (different enemy types).
+      - Manual lifetime control (dead enemies remain in the vector for
+        QuadTree indexing consistency within a frame).
+      - Cleanup via 'delete' in the final cleanup loop.
+
+   b) QuadTree Child Nodes (QuadTree.cpp):
+      Child nodes are dynamically allocated with 'new' during split() and
+      recursively deleted during clear(). This creates a TREE structure
+      where each node may have 0 or 4 children.
+
+   MEMORY MANAGEMENT PATTERN:
+   - Allocation:   new Enemy() in spawnEnemy(), new QuadTree() in split()
+   - Deallocation: delete in cleanup loops and QuadTree::clear()
+   - No smart pointers used (raw pointer management).
+
+--------------------------------------------------------------------------------
+3.6  TREE DATA STRUCTURE (via QuadTree)
+     File: QuadTree.h, QuadTree.cpp
+--------------------------------------------------------------------------------
+
+   The QuadTree IS a tree. Specifically:
+   - It is a 4-ARY TREE (each internal node has exactly 4 children).
+   - Maximum depth is 5 levels (root at level 0, leaves at level 5).
+   - It is NOT a balanced tree — subdivisions only occur where objects
+     cluster, leaving sparse regions as leaf nodes.
+   - The tree is EPHEMERAL — completely rebuilt from scratch every frame
+     rather than being maintained across frames.
+
+   Tree traversal used:
+   - INSERT: Top-down traversal to find the correct leaf/node.
+   - RETRIEVE: Top-down traversal with spatial filtering (only visit
+     children whose bounds intersect the query).
+   - CLEAR: Post-order traversal (clear children before deleting parent).
+
+--------------------------------------------------------------------------------
+3.7  AXIS-ALIGNED BOUNDING BOX (AABB) — COLLISION DETECTION
+     Used throughout: sf::FloatRect
+--------------------------------------------------------------------------------
+
+   WHAT IS AABB?
+   An Axis-Aligned Bounding Box is a rectangle whose edges are parallel to
+   the coordinate axes (not rotated). Two AABBs collide if and only if they
+   overlap on BOTH the X and Y axes simultaneously.
+
+   WHERE USED:
+   - Player vs. Wall collision (Player.cpp, lines 121-141)
+   - Enemy vs. Wall collision (Enemy.cpp, lines 226-244)
+   - Player melee attack vs. Enemy (main.cpp, lines 188-196)
+   - Player vs. Escape door (main.cpp, line 297)
+   - Player vs. Spike damage (main.cpp, lines 312-315)
+   - Enemy damage bounds vs. Player (main.cpp, lines 303-308)
+   - Player proximity to lever (main.cpp, lines 347-349)
+   - Enemy spawn validation (main.cpp, lines 44-50)
+   - QuadTree spatial queries (QuadTree.cpp, uses FloatRect.intersects())
+
+   The sf::FloatRect.intersects() method implements the standard AABB
+   overlap test:
+     overlap = (A.left < B.left + B.width) && (A.left + A.width > B.left)
+            && (A.top < B.top + B.height)  && (A.top + A.height > B.top)
+
+   WHY AABB?
+   - Extremely fast: O(1) per pair comparison (4 comparisons).
+   - Good enough for this game's top-down perspective.
+   - No rotation handling needed (sprites face 4 cardinal directions).
+
+--------------------------------------------------------------------------------
+3.8  SPATIAL HASHING / GRID CONCEPT (Implicit in QuadTree)
+--------------------------------------------------------------------------------
+
+   While the project uses a QuadTree rather than a traditional spatial hash
+   grid, the CONCEPT of spatial partitioning is the same: divide the 2D world
+   into regions so that collision queries only check objects in nearby regions
+   rather than all objects globally.
+
+   The QuadTree adaptively subdivides denser areas more finely than sparse
+   areas, making it more memory-efficient than a fixed-size grid for worlds
+   where enemies cluster together (e.g., around the player).
+
+--------------------------------------------------------------------------------
+3.9  LINEAR SEARCH
+     Used in: Map.cpp (triggerLever), main.cpp (enemy iteration)
+--------------------------------------------------------------------------------
+
+   Several operations use simple O(n) linear iteration:
+   - Searching for the invisible blockade in the obstacles vector during
+     lever trigger (Map.cpp, lines 175-182).
+   - Iterating all enemies to count active ones (main.cpp, line 224).
+   - Iterating all obstacles for player/enemy wall collision checks.
+   - Iterating QuadTree retrieve results for fine collision testing.
+
+   This is acceptable because:
+   - The obstacles list has ~17 entries (constant, very small).
+   - Active enemies are capped at 20 (MAX_ENEMIES_ON_SCREEN).
+   - QuadTree reduces retrieve results to typically 1-4 enemies.
+
+--------------------------------------------------------------------------------
+3.10  PLANNED DATA STRUCTURE ADDITIONS (For Upcoming Features)
+--------------------------------------------------------------------------------
+
+   a) Level Configuration Map/Array:
+      A structure (array or map) storing per-level parameters:
+      - Level 1: enemy HP multiplier 1x, spawn rate 3s, max enemies 15
+      - Level 2: enemy HP multiplier 1.5x, spawn rate 2s, max enemies 25
+      - Level 3: enemy HP multiplier 2x, spawn rate 1s, max enemies 35
+
+   b) State Machine Expansion:
+      The game's overall state will be managed as a formal state machine:
+      MENU -> LEVEL_SELECT -> PLAYING -> (GAME_OVER | ESCAPED) -> MENU
+      This prevents invalid transitions and cleanly separates screen logic.
+
+   c) Inventory / Boolean Flags:
+      A simple key-collected boolean (or small inventory vector) to track
+      whether the player has picked up the dungeon key needed to open the
+      escape door.
+
+   d) Timer-Based Priority Queue (Conceptual):
+      The escalating difficulty system conceptually creates a priority of
+      events: as elapsed time increases, spawn intervals decrease and enemy
+      stats increase. This could be modeled as a series of timed thresholds
+      checked against the running game clock.
+
+
+================================================================================
+END OF DOCUMENT
+================================================================================

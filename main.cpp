@@ -68,6 +68,38 @@ void spawnEnemy(std::vector<Enemy*>& enemies, const Map& gameMap, const sf::Vect
     }
 }
 
+// Draw a themed dungeon-style button with hover highlight
+void drawButton(sf::RenderWindow& window, const sf::Font& font,
+                const std::string& label, float x, float y, float w, float h,
+                const sf::Vector2f& mousePos) {
+    sf::RectangleShape btn(sf::Vector2f(w, h));
+    btn.setPosition(x, y);
+
+    bool hovered = btn.getGlobalBounds().contains(mousePos);
+
+    if (hovered) {
+        btn.setFillColor(sf::Color(80, 70, 55, 235));
+        btn.setOutlineColor(sf::Color(255, 215, 0));
+    } else {
+        btn.setFillColor(sf::Color(45, 40, 35, 220));
+        btn.setOutlineColor(sf::Color(160, 130, 40));
+    }
+    btn.setOutlineThickness(2.f);
+
+    sf::Text text;
+    text.setFont(font);
+    text.setString(label);
+    text.setCharacterSize(24);
+    text.setFillColor(hovered ? sf::Color(255, 225, 80) : sf::Color(210, 180, 60));
+
+    sf::FloatRect tb = text.getLocalBounds();
+    text.setOrigin(tb.left + tb.width / 2.f, tb.top + tb.height / 2.f);
+    text.setPosition(x + w / 2.f, y + h / 2.f);
+
+    window.draw(btn);
+    window.draw(text);
+}
+
 int main()
 {
     sf::RenderWindow window(sf::VideoMode(WINDOW_WIDTH, WINDOW_HEIGHT), "SFML RPG with DSA QuadTree");
@@ -114,7 +146,7 @@ int main()
     sf::Music bgMusic;
     if (bgMusic.openFromFile("assets/sound/music.wav")) {
         bgMusic.setLoop(true);
-        bgMusic.setVolume(15.f); // Low volume
+        bgMusic.setVolume(25.f); // Low volume
         bgMusic.play();
     } else {
         std::cerr << "ERROR: Failed to load assets/sound/music.wav! (Check if SFML version supports MP3 or if openal32.dll is missing)\n";
@@ -143,19 +175,53 @@ int main()
     // Clock for deltaTime
     sf::Clock dtClock;
 
-    // Game state variables
-    bool escaped = false;
-    bool gameOver = false;
+    // Game state
+    enum GameState { PLAYING, PAUSED, GAME_OVER_STATE, ESCAPED_STATE };
+    GameState gameState = PLAYING;
     float spawnTimer = 0.0f;
-    float spawnInterval = 3.0f; // Seconds per spawn
+    float spawnInterval = 3.0f;
 
     // QuadTree bounds - let's make it cover the map, approx 2816x1536
     sf::FloatRect mapBounds(0, 0, 3000, 2000);
+
+    // Button layout constants
+    const float BTN_W = 240.f;
+    const float BTN_H = 55.f;
+    const float BTN_X = WINDOW_WIDTH / 2.f - BTN_W / 2.f;
+
+    // Lambda to fully reset game state for retry / play-again
+    auto resetGame = [&]() {
+        for (auto enemy : enemies) delete enemy;
+        enemies.clear();
+        for (auto bullet : bullets) delete bullet;
+        bullets.clear();
+
+        player.reset(gameMap.getSpawnPoint().x, gameMap.getSpawnPoint().y);
+        gameMap.reset();
+
+        score = 0;
+        spawnTimer = 0.0f;
+        spawnInterval = 3.0f;
+        hasPlayedGameOver = false;
+
+        for (int i = 0; i < INITIAL_ENEMY_COUNT; i++) {
+            spawnEnemy(enemies, gameMap, player.getPosition());
+        }
+
+        bgMusic.play();
+        gameOverMusic.stop();
+
+        gameState = PLAYING;
+    };
 
     // Game Loop
     while (window.isOpen())
     {
         float dt = dtClock.restart().asSeconds();
+
+        // Mouse position for button hover detection (screen-space)
+        sf::Vector2i mousePixel = sf::Mouse::getPosition(window);
+        sf::Vector2f mouseScreen(static_cast<float>(mousePixel.x), static_cast<float>(mousePixel.y));
 
         sf::Event event;
         while (window.pollEvent(event))
@@ -163,24 +229,34 @@ int main()
             if (event.type == sf::Event::Closed)
                 window.close();
 
-            if (event.type == sf::Event::MouseButtonPressed) {
-                if (event.mouseButton.button == sf::Mouse::Left && !escaped) {
-                    // Shoot bullet - Disable per user request, kept for later
-                    /*
-                    sf::Vector2i pixelPos = sf::Mouse::getPosition(window);
-                    sf::Vector2f worldPos = window.mapPixelToCoords(pixelPos);
-                    
-                    sf::Vector2f playerPos = player.getPosition();
-                    sf::Vector2f direction = worldPos - playerPos;
-                    
-                    Bullet* b = new Bullet(playerPos, direction, 0.f);
-                    bullets.push_back(b);
-                    */
+            // Toggle pause with Escape key
+            if (event.type == sf::Event::KeyPressed && event.key.code == sf::Keyboard::Escape) {
+                if (gameState == PLAYING)  gameState = PAUSED;
+                else if (gameState == PAUSED) gameState = PLAYING;
+            }
+
+            // Mouse click — handle menu/overlay buttons
+            if (event.type == sf::Event::MouseButtonPressed && event.mouseButton.button == sf::Mouse::Left) {
+                float mx = static_cast<float>(event.mouseButton.x);
+                float my = static_cast<float>(event.mouseButton.y);
+
+                if (gameState == PAUSED) {
+                    if (mx >= BTN_X && mx <= BTN_X + BTN_W && my >= 300.f && my <= 355.f) gameState = PLAYING;   // Resume
+                    if (mx >= BTN_X && mx <= BTN_X + BTN_W && my >= 370.f && my <= 425.f) resetGame();           // Retry
+                    if (mx >= BTN_X && mx <= BTN_X + BTN_W && my >= 440.f && my <= 495.f) window.close();        // Quit
+                }
+                else if (gameState == GAME_OVER_STATE) {
+                    if (mx >= BTN_X && mx <= BTN_X + BTN_W && my >= 380.f && my <= 435.f) resetGame();           // Retry
+                    if (mx >= BTN_X && mx <= BTN_X + BTN_W && my >= 450.f && my <= 505.f) window.close();        // Quit
+                }
+                else if (gameState == ESCAPED_STATE) {
+                    if (mx >= BTN_X && mx <= BTN_X + BTN_W && my >= 380.f && my <= 435.f) resetGame();           // Play Again
+                    if (mx >= BTN_X && mx <= BTN_X + BTN_W && my >= 450.f && my <= 505.f) window.close();        // Quit
                 }
             }
 
-            // Handle input for attacks
-            if (sf::Keyboard::isKeyPressed(sf::Keyboard::Space)) {
+            // Melee attack — only while actively playing
+            if (gameState == PLAYING && sf::Keyboard::isKeyPressed(sf::Keyboard::Space)) {
                 if (player.attack()) {
                     // Play slash sound effect
                     slashSound.play();
@@ -197,25 +273,124 @@ int main()
             }
         }
 
-        if (escaped) {
-            // Stop updating
-            window.clear(sf::Color::Black);
-            scoreText.setPosition(window.getView().getCenter().x - 100, window.getView().getCenter().y);
-            scoreText.setString("You Escaped! Final Score: " + std::to_string(score));
-            window.draw(scoreText);
+        // =================== VICTORY SCREEN ===================
+        if (gameState == ESCAPED_STATE) {
+            window.clear(sf::Color(10, 10, 15));
+            window.setView(window.getDefaultView());
+
+            // Subtle dark-green overlay
+            sf::RectangleShape overlay(sf::Vector2f(WINDOW_WIDTH, WINDOW_HEIGHT));
+            overlay.setFillColor(sf::Color(5, 20, 5, 180));
+            window.draw(overlay);
+
+            // Title
+            sf::Text title;
+            title.setFont(font);
+            title.setString("YOU ESCAPED!");
+            title.setCharacterSize(56);
+            title.setFillColor(sf::Color(220, 190, 60));
+            title.setStyle(sf::Text::Bold);
+            sf::FloatRect tb1 = title.getLocalBounds();
+            title.setOrigin(tb1.left + tb1.width / 2.f, tb1.top + tb1.height / 2.f);
+            title.setPosition(WINDOW_WIDTH / 2.f, 180.f);
+            window.draw(title);
+
+            // Decorative line
+            sf::RectangleShape dLine(sf::Vector2f(300.f, 2.f));
+            dLine.setFillColor(sf::Color(180, 150, 50, 180));
+            dLine.setPosition(WINDOW_WIDTH / 2.f - 150.f, 225.f);
+            window.draw(dLine);
+
+            // Subtitle
+            sf::Text sub;
+            sub.setFont(font);
+            sub.setString("You made it out of the dungeon alive!");
+            sub.setCharacterSize(18);
+            sub.setFillColor(sf::Color(160, 180, 140));
+            sf::FloatRect sb1 = sub.getLocalBounds();
+            sub.setOrigin(sb1.left + sb1.width / 2.f, sb1.top + sb1.height / 2.f);
+            sub.setPosition(WINDOW_WIDTH / 2.f, 260.f);
+            window.draw(sub);
+
+            // Score
+            sf::Text sc;
+            sc.setFont(font);
+            sc.setString("Final Score: " + std::to_string(score));
+            sc.setCharacterSize(28);
+            sc.setFillColor(sf::Color(200, 200, 200));
+            sf::FloatRect scb1 = sc.getLocalBounds();
+            sc.setOrigin(scb1.left + scb1.width / 2.f, scb1.top + scb1.height / 2.f);
+            sc.setPosition(WINDOW_WIDTH / 2.f, 320.f);
+            window.draw(sc);
+
+            // Buttons
+            drawButton(window, font, "Play Again", BTN_X, 380.f, BTN_W, BTN_H, mouseScreen);
+            drawButton(window, font, "Quit",       BTN_X, 450.f, BTN_W, BTN_H, mouseScreen);
+
             window.display();
             continue;
         }
 
-        if (gameOver) {
-            // Stop updating
-            window.clear(sf::Color(50, 0, 0)); // Dark red tone
-            scoreText.setPosition(window.getView().getCenter().x - 100, window.getView().getCenter().y);
-            scoreText.setString("YOU DIED! Game Over.");
-            window.draw(scoreText);
+        // =================== GAME OVER SCREEN ===================
+        if (gameState == GAME_OVER_STATE) {
+            window.clear(sf::Color(20, 5, 5));
+            window.setView(window.getDefaultView());
+
+            // Dark-red overlay
+            sf::RectangleShape overlay(sf::Vector2f(WINDOW_WIDTH, WINDOW_HEIGHT));
+            overlay.setFillColor(sf::Color(40, 0, 0, 180));
+            window.draw(overlay);
+
+            // Title
+            sf::Text title;
+            title.setFont(font);
+            title.setString("YOU DIED");
+            title.setCharacterSize(64);
+            title.setFillColor(sf::Color(200, 30, 30));
+            title.setStyle(sf::Text::Bold);
+            sf::FloatRect tb2 = title.getLocalBounds();
+            title.setOrigin(tb2.left + tb2.width / 2.f, tb2.top + tb2.height / 2.f);
+            title.setPosition(WINDOW_WIDTH / 2.f, 180.f);
+            window.draw(title);
+
+            // Subtitle
+            sf::Text sub;
+            sub.setFont(font);
+            sub.setString("The dungeon claims another soul...");
+            sub.setCharacterSize(18);
+            sub.setFillColor(sf::Color(150, 100, 100));
+            sf::FloatRect sb2 = sub.getLocalBounds();
+            sub.setOrigin(sb2.left + sb2.width / 2.f, sb2.top + sb2.height / 2.f);
+            sub.setPosition(WINDOW_WIDTH / 2.f, 245.f);
+            window.draw(sub);
+
+            // Decorative line
+            sf::RectangleShape dLine(sf::Vector2f(300.f, 2.f));
+            dLine.setFillColor(sf::Color(150, 30, 30, 180));
+            dLine.setPosition(WINDOW_WIDTH / 2.f - 150.f, 275.f);
+            window.draw(dLine);
+
+            // Score
+            sf::Text sc;
+            sc.setFont(font);
+            sc.setString("Score: " + std::to_string(score));
+            sc.setCharacterSize(24);
+            sc.setFillColor(sf::Color(180, 150, 150));
+            sf::FloatRect scb2 = sc.getLocalBounds();
+            sc.setOrigin(scb2.left + scb2.width / 2.f, scb2.top + scb2.height / 2.f);
+            sc.setPosition(WINDOW_WIDTH / 2.f, 320.f);
+            window.draw(sc);
+
+            // Buttons
+            drawButton(window, font, "Retry", BTN_X, 380.f, BTN_W, BTN_H, mouseScreen);
+            drawButton(window, font, "Quit",  BTN_X, 450.f, BTN_W, BTN_H, mouseScreen);
+
             window.display();
             continue;
         }
+
+        // =================== GAMEPLAY UPDATE (only while PLAYING) ===================
+        if (gameState == PLAYING) {
 
         // Endless Spawner Logic
         spawnTimer += dt;
@@ -293,9 +468,17 @@ int main()
             ++it;
         }
 
-        // Check Escape Condition
-        if (player.getGlobalBounds().intersects(gameMap.getEscapeDoorBounds())) {
-            escaped = true;
+        // KEY PICKUP: walk over key to auto-collect
+        if (!gameMap.isKeyCollected() &&
+            player.getGlobalBounds().intersects(gameMap.getKeyBounds())) {
+            gameMap.collectKey();
+        }
+
+        // WIN ZONE: entering the door area after door is opened
+        if (gameMap.isDoorOpen() &&
+            player.getGlobalBounds().intersects(gameMap.getDoorAreaBounds())) {
+            gameState = ESCAPED_STATE;
+            bgMusic.stop();
         }
 
         // --- TAKING DAMAGE --- //
@@ -315,7 +498,7 @@ int main()
         }
 
         if (player.getHealth() <= 0) {
-            gameOver = true;
+            gameState = GAME_OVER_STATE;
             // Transition music
             bgMusic.stop();
             if (!hasPlayedGameOver) {
@@ -324,7 +507,13 @@ int main()
             }
         }
 
-        // Render
+        } // end if (gameState == PLAYING)
+
+        // Always update camera for rendering (needed for PAUSED state too)
+        view.setCenter(player.getPosition());
+        window.setView(view);
+
+        // =================== RENDER GAME WORLD ===================
         window.clear();
         gameMap.draw(window);
 
@@ -339,6 +528,98 @@ int main()
             bullet->draw(window);
         }
 
+        // Draw Interaction UI natively attached to World Space
+        sf::Vector2f playerPosWorld = player.getPosition();
+        sf::FloatRect leverBounds = gameMap.getLeverBounds();
+        sf::Vector2f leverCenter(leverBounds.left + leverBounds.width/2, leverBounds.top + leverBounds.height/2);
+        
+        float distToLever = std::sqrt(std::pow(playerPosWorld.x - leverCenter.x, 2) + std::pow(playerPosWorld.y - leverCenter.y, 2));
+
+        if (distToLever < 40.f && !gameMap.isLeverPulled()) {
+            sf::Text interactText;
+            interactText.setFont(font);
+            interactText.setCharacterSize(18);
+            interactText.setFillColor(sf::Color::Yellow);
+            interactText.setString("Press 'E' to open");
+            interactText.setPosition(playerPosWorld.x - 60.f, playerPosWorld.y - 80.f);
+            
+            // Generate tiny background tag for readability
+            sf::FloatRect textBounds = interactText.getGlobalBounds();
+            sf::RectangleShape theTag(sf::Vector2f(textBounds.width + 10.f, textBounds.height + 10.f));
+            theTag.setPosition(interactText.getPosition().x - 5.f, interactText.getPosition().y - 5.f);
+            theTag.setFillColor(sf::Color(0, 0, 0, 0));
+            
+            window.draw(theTag);
+            window.draw(interactText);
+            
+            if (gameState == PLAYING && sf::Keyboard::isKeyPressed(sf::Keyboard::E)) {
+                gameMap.triggerLever();
+            }
+        }
+
+        // Lever 2 proximity interaction
+        sf::FloatRect lever2Bounds = gameMap.getLever2Bounds();
+        sf::Vector2f lever2Center(lever2Bounds.left + lever2Bounds.width/2, lever2Bounds.top + lever2Bounds.height/2);
+        float distToLever2 = std::sqrt(std::pow(playerPosWorld.x - lever2Center.x, 2) + std::pow(playerPosWorld.y - lever2Center.y, 2));
+
+        if (distToLever2 < 40.f && !gameMap.isLever2Pulled()) {
+            sf::Text interactText2;
+            interactText2.setFont(font);
+            interactText2.setCharacterSize(18);
+            interactText2.setFillColor(sf::Color::Yellow);
+            interactText2.setString("Press 'E' to open");
+            interactText2.setPosition(playerPosWorld.x - 60.f, playerPosWorld.y - 80.f);
+
+            sf::FloatRect textBounds2 = interactText2.getGlobalBounds();
+            sf::RectangleShape theTag2(sf::Vector2f(textBounds2.width + 10.f, textBounds2.height + 10.f));
+            theTag2.setPosition(interactText2.getPosition().x - 5.f, interactText2.getPosition().y - 5.f);
+            theTag2.setFillColor(sf::Color(0, 0, 0, 0));
+
+            window.draw(theTag2);
+            window.draw(interactText2);
+
+            if (gameState == PLAYING && sf::Keyboard::isKeyPressed(sf::Keyboard::E)) {
+                gameMap.triggerLever2();
+            }
+        }
+
+        // --- DOOR CIRCLE INTERACTION (center 1931,749 r=150) ---
+        {
+            sf::Vector2f doorCenter(1931.f, 749.f);
+            float distToDoor = std::sqrt(
+                std::pow(playerPosWorld.x - doorCenter.x, 2) +
+                std::pow(playerPosWorld.y - doorCenter.y, 2));
+
+            if (distToDoor < 150.f && !gameMap.isDoorOpen()) {
+                std::string doorMsg = gameMap.isKeyCollected()
+                    ? "Press 'E' to Escape"
+                    : "Find Key to Open";
+                sf::Color msgColor = gameMap.isKeyCollected()
+                    ? sf::Color(50, 255, 100)   // green when ready
+                    : sf::Color(255, 200, 50);   // amber when locked
+
+                sf::Text doorText;
+                doorText.setFont(font);
+                doorText.setCharacterSize(18);
+                doorText.setFillColor(msgColor);
+                doorText.setString(doorMsg);
+                doorText.setPosition(playerPosWorld.x - 70.f, playerPosWorld.y - 80.f);
+
+                sf::FloatRect dtBounds = doorText.getGlobalBounds();
+                sf::RectangleShape dtBg(sf::Vector2f(dtBounds.width + 12.f, dtBounds.height + 10.f));
+                dtBg.setPosition(doorText.getPosition().x - 6.f, doorText.getPosition().y - 4.f);
+                dtBg.setFillColor(sf::Color(0, 0, 0, 160));
+                window.draw(dtBg);
+                window.draw(doorText);
+
+                // Only open if key in hand and actively playing
+                if (gameState == PLAYING && gameMap.isKeyCollected() && sf::Keyboard::isKeyPressed(sf::Keyboard::E)) {
+                    gameMap.openDoor();
+                }
+            }
+        }
+
+        // =================== HUD OVERLAY ===================
         // Switch purely to UI Overlay Context
         window.setView(window.getDefaultView());
         
@@ -389,6 +670,37 @@ int main()
                 fillPiece.setFillColor(sf::Color(30, 144, 255)); // Dodger Blue
                 window.draw(fillPiece);
             }
+        }
+
+        // =================== PAUSE OVERLAY ===================
+        if (gameState == PAUSED) {
+            // Semi-transparent dark overlay over the frozen game world
+            sf::RectangleShape pauseOverlay(sf::Vector2f(WINDOW_WIDTH, WINDOW_HEIGHT));
+            pauseOverlay.setFillColor(sf::Color(0, 0, 0, 170));
+            window.draw(pauseOverlay);
+
+            // Title
+            sf::Text pauseTitle;
+            pauseTitle.setFont(font);
+            pauseTitle.setString("PAUSED");
+            pauseTitle.setCharacterSize(52);
+            pauseTitle.setFillColor(sf::Color(220, 190, 60));
+            pauseTitle.setStyle(sf::Text::Bold);
+            sf::FloatRect ptb = pauseTitle.getLocalBounds();
+            pauseTitle.setOrigin(ptb.left + ptb.width / 2.f, ptb.top + ptb.height / 2.f);
+            pauseTitle.setPosition(WINDOW_WIDTH / 2.f, 200.f);
+            window.draw(pauseTitle);
+
+            // Decorative line
+            sf::RectangleShape pauseLine(sf::Vector2f(250.f, 2.f));
+            pauseLine.setFillColor(sf::Color(180, 150, 50, 160));
+            pauseLine.setPosition(WINDOW_WIDTH / 2.f - 125.f, 240.f);
+            window.draw(pauseLine);
+
+            // Buttons
+            drawButton(window, font, "Resume", BTN_X, 300.f, BTN_W, BTN_H, mouseScreen);
+            drawButton(window, font, "Retry",  BTN_X, 370.f, BTN_W, BTN_H, mouseScreen);
+            drawButton(window, font, "Quit",   BTN_X, 440.f, BTN_W, BTN_H, mouseScreen);
         }
 
         window.display();

@@ -253,3 +253,18 @@ bool Player::drainStamina(float amount) {
     }
     return false;
 }
+
+void Player::reset(float x, float y) {
+    health = maxHealth;
+    stamina = maxStamina;
+    damageCooldown = 0.0f;
+    isAttacking = false;
+    attackTimer = 0.0f;
+    currentFrameX = 0;
+    animationTime = 0.0f;
+    currentDir = 1; // face down
+    velocity = sf::Vector2f(0.f, 0.f);
+    sprite.setPosition(x, y);
+    sprite.setTexture(idleTextures[currentDir]);
+    sprite.setTextureRect(sf::IntRect(0, 0, frameSize.x, frameSize.y));
+}
